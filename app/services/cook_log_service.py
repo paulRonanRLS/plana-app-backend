@@ -56,6 +56,39 @@ def create(db: Session, user: User, recipe_id: str, data: dict) -> CookLog:
     return cook_log
 
 
+def update(db: Session, user: User, cook_log_id: str, data: dict) -> CookLog:
+    """
+    Update a cook log entry (rating and/or notes).
+
+    Args:
+        db: Database session
+        user: User making the request
+        cook_log_id: Cook log ID to update
+        data: Fields to update (rating, notes)
+
+    Returns:
+        Updated CookLog object
+
+    Raises:
+        HTTPException: 404 if not found, 403 if not owner
+    """
+    cook_log = db.query(CookLog).filter(CookLog.id == cook_log_id).first()
+
+    if not cook_log:
+        raise HTTPException(status_code=404, detail="Cook log not found")
+
+    if cook_log.user_id != user.id:
+        raise HTTPException(status_code=403, detail="You don't have permission to edit this cook log")
+
+    for field, value in data.items():
+        setattr(cook_log, field, value)
+
+    db.commit()
+    db.refresh(cook_log)
+
+    return cook_log
+
+
 def list_for_recipe(db: Session, user: User, recipe_id: str) -> list[CookLog]:
     """
     List all cook logs for a specific recipe.

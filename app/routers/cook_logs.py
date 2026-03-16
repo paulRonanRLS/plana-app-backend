@@ -13,7 +13,7 @@ from app.dependencies.auth import get_current_user
 from app.models.user import User
 from app.models.cook_log import CookLog, VoiceNote
 from app.schemas.cook_log import (
-    CookLogCreate, CookLogRead, RecipeStats, VoiceNoteRead
+    CookLogCreate, CookLogUpdate, CookLogRead, RecipeStats, VoiceNoteRead
 )
 from app.services import cook_log_service, voice_note_service
 
@@ -74,6 +74,18 @@ def list_cook_logs_for_user(
         db, current_user, cooked_after, cooked_before
     )
     return cook_logs
+
+
+@router.patch("/cook-logs/{cook_log_id}", response_model=CookLogRead)
+def update_cook_log(
+    cook_log_id: str,
+    body: CookLogUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Update rating and/or notes on a cook log entry."""
+    data = body.model_dump(exclude_unset=True)
+    return cook_log_service.update(db, current_user, cook_log_id, data)
 
 
 @router.post("/cook-logs/{cook_log_id}/voice-notes", response_model=VoiceNoteRead, status_code=201)
