@@ -1,31 +1,58 @@
+"""
+Auth endpoints.
+
+POST /auth/login — called after Firebase social login completes on the client.
+Verifies the Firebase token, creates the user record on first login,
+and returns the full profile. All subsequent authenticated requests go
+through get_current_user in app/dependencies/auth.py which also handles
+auto-creation, so this endpoint is mainly used to get the is_new_user flag
+and bootstrap the client session.
+"""
+
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
-from app.database import get_db
-from app.middleware.auth import get_current_user
+from app.config import get_settings, Settings
+from app.dependencies.db import get_db
+from app.dependencies.auth import verify_firebase_token
 from app.models.user import User
-from app.schemas.user import LoginRequest, LoginResponse, UserResponse, UserUpdate
+from app.schemas.user import LoginRequest, LoginResponse
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
 
 @router.post("/login", response_model=LoginResponse)
-def login(body: LoginRequest, db: Session = Depends(get_db)):
+def login(
+    body: LoginRequest,
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+):
     """
     Called after Firebase social login completes on the client.
-    Creates user record on first login, returns profile on subsequent logins.
+
+    - Verifies the Firebase ID token to extract the real firebase_uid
+    - Looks up the user by firebase_uid (consistent with get_current_user)
+    - Creates user record on first login using token data + body fallbacks
+    - Returns full profile plus is_new_user flag
     """
-    # Check if user already exists by email
-    user = db.query(User).filter(User.email == body.email).first()
+    # Verify token → get real firebase_uid and any data embedded in the token
+    firebase_uid, token_data = verify_firebase_token(body.firebase_token, settings)
+
+    # Look up by firebase_uid — same key used by get_current_user
+    user = db.query(User).filter(User.firebase_uid == firebase_uid).first()
     is_new = user is None
 
     if is_new:
+        # Prefer data extracted from the verified token; fall back to body fields
         user = User(
-            name=body.display_name,
-            email=body.email,
-            avatar_url=body.avatar_url,
-            auth_provider="google",  # TODO: detect from Firebase token
-            firebase_uid=body.firebase_token[:128],  # Placeholder — use real UID in production
+            firebase_uid=firebase_uid,
+            name=token_data.get("name") or body.display_name,
+            email=token_data.get("email") or body.email,
+            avatar_url=token_data.get("picture") or body.avatar_url,
+            auth_provider="google",
+            preferred_units="metric",
+            default_servings=4,
+            voice_enabled=True,
         )
         db.add(user)
         db.commit()
@@ -43,24 +70,3 @@ def login(body: LoginRequest, db: Session = Depends(get_db)):
         created_at=user.created_at,
         is_new_user=is_new,
     )
-
-
-@router.get("/me", response_model=UserResponse)
-def get_me(current_user: User = Depends(get_current_user)):
-    """Get current authenticated user profile."""
-    return current_user
-
-
-@router.patch("/me", response_model=UserResponse)
-def update_me(
-    body: UserUpdate,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
-):
-    """Update user preferences."""
-    update_data = body.model_dump(exclude_unset=True)
-    for field, value in update_data.items():
-        setattr(current_user, field, value)
-    db.commit()
-    db.refresh(current_user)
-    return current_user
