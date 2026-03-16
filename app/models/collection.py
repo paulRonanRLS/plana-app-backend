@@ -1,5 +1,5 @@
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 
 from sqlalchemy import String, Integer, DateTime, Text, ForeignKey
 from sqlalchemy.dialects.postgresql import JSON
@@ -18,8 +18,8 @@ class Collection(Base):
     cover: Mapped[str | None] = mapped_column(String(500), nullable=True)  # emoji, URL, or auto-mosaic
     type: Mapped[str] = mapped_column(String(20), default="manual")  # manual | smart
     smart_rule: Mapped[dict | None] = mapped_column(JSON, nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
-    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc))
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 
     # Relationships
     owner = relationship("User", back_populates="collections")
@@ -34,7 +34,7 @@ class CollectionRecipe(Base):
     collection_id: Mapped[str] = mapped_column(String, ForeignKey("collections.id"), index=True)
     recipe_id: Mapped[str] = mapped_column(String, ForeignKey("recipes.id"), index=True)
     sort_order: Mapped[int] = mapped_column(Integer, default=0)
-    added_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    added_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc))
     added_by: Mapped[str] = mapped_column(String, ForeignKey("users.id"))
 
     # Relationships
@@ -49,8 +49,24 @@ class Collaborator(Base):
     collection_id: Mapped[str] = mapped_column(String, ForeignKey("collections.id"), index=True)
     user_id: Mapped[str] = mapped_column(String, ForeignKey("users.id"), index=True)
     role: Mapped[str] = mapped_column(String(20), default="editor")  # editor | viewer
-    invited_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    invited_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc))
     accepted_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
     # Relationships
     collection = relationship("Collection", back_populates="collaborators")
+
+
+class CollectionInvite(Base):
+    __tablename__ = "collection_invites"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True, default=lambda: f"inv_{uuid.uuid4().hex[:12]}")
+    collection_id: Mapped[str] = mapped_column(String, ForeignKey("collections.id"), index=True)
+    role: Mapped[str] = mapped_column(String(20), default="editor")  # editor | viewer
+    invited_email: Mapped[str] = mapped_column(String(255))
+    token: Mapped[str] = mapped_column(String, default=lambda: str(uuid.uuid4()), unique=True, index=True)
+    expires_at: Mapped[datetime] = mapped_column(DateTime)
+    accepted_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc))
+
+    # Relationships
+    collection = relationship("Collection")

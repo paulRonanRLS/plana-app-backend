@@ -13,25 +13,28 @@ class Settings(BaseSettings):
 
     # Redis
     redis_url: str = "redis://localhost:6379/0"
+    redis_enabled: bool = True
 
-    # Firebase Auth (optional for initial development)
+    # Firebase Auth
+    firebase_enabled: bool = False
     firebase_credentials_path: str | None = None
+    firebase_project_id: str = "rls-recipe"
+    firebase_web_api_key: str | None = None
+    firebase_test_email: str | None = None
+    firebase_test_password: str | None = None
 
     # Anthropic / Claude API (optional until extraction is built)
     anthropic_api_key: str | None = None
+    claude_enabled: bool = True
 
     # Google Cloud Vision (optional until photo capture is built)
     google_cloud_credentials_path: str | None = None
+    google_application_credentials: str | None = None
+    google_cloud_enabled: bool = False
 
-    # AWS S3 (optional - local storage used by default)
-    aws_access_key_id: str | None = None
-    aws_secret_access_key: str | None = None
-    aws_s3_bucket: str | None = None
-    aws_s3_region: str | None = None
-
-    # File storage
-    storage_backend: str = "local"  # "local" or "s3"
-    local_upload_dir: str = "./uploads"
+    # Google Cloud Storage (optional - local storage used by default)
+    use_gcs: bool = False
+    gcs_bucket_name: str | None = None
 
     @property
     def is_development(self) -> bool:

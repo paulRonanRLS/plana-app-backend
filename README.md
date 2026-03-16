@@ -47,7 +47,30 @@ poetry run uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 
 ### Authentication
 
-In development (when `FIREBASE_CREDENTIALS_PATH` is not set in `.env`), the API automatically uses a test user — no Firebase setup needed. All authenticated endpoints work immediately.
+The API supports two authentication modes:
+
+**Stub Mode (Development/Testing):**
+- Set `FIREBASE_ENABLED=false` in `.env` (default)
+- Any Bearer token is accepted as a Firebase UID
+- No Firebase credentials needed
+- Perfect for frontend development and testing
+
+**Real Firebase Mode (Production):**
+- Set `FIREBASE_ENABLED=true` in `.env`
+- Requires `FIREBASE_CREDENTIALS_PATH` pointing to service account JSON
+- Verifies real Firebase ID tokens
+- Auto-creates users from token data (email, name, avatar)
+
+**Getting test tokens:**
+```bash
+# Set credentials in environment or .env
+export FIREBASE_WEB_API_KEY="your-web-api-key"
+export FIREBASE_TEST_EMAIL="test@example.com"
+export FIREBASE_TEST_PASSWORD="password"
+
+# Get a token
+poetry run python scripts/get_firebase_token.py
+```
 
 ### Database Migrations
 
@@ -69,6 +92,12 @@ app/
 ├── main.py              # FastAPI app, middleware, route registration
 ├── config.py            # Pydantic settings (reads .env)
 ├── database.py          # SQLAlchemy engine, session, Base
+├── core/                # Core infrastructure
+│   ├── firebase.py      # Firebase Admin SDK initialization
+│   └── storage.py       # File storage abstraction (local/S3)
+├── dependencies/        # FastAPI dependencies
+│   ├── auth.py          # Firebase token verification (stub/real modes)
+│   └── db.py            # Database session dependency
 ├── models/              # SQLAlchemy ORM models (database tables)
 │   ├── user.py
 │   ├── recipe.py        # Recipe, Ingredient, Step, Equipment, Nutrition, Pairing
@@ -80,20 +109,43 @@ app/
 │   ├── collection.py
 │   ├── cook_log.py
 │   └── common.py        # Error schemas
-├── routes/              # API endpoint handlers
+├── routers/             # API endpoint handlers (thin layer)
 │   ├── auth.py          # POST /auth/login, GET/PATCH /auth/me
+│   ├── users.py         # GET/PATCH/DELETE /users/me
 │   ├── recipes.py       # Full CRUD + notes
 │   ├── collections.py   # CRUD + sharing + smart collections
-│   ├── cook_log.py      # Cook logs + voice notes
+│   ├── cook_logs.py     # Cook logs + voice notes
 │   └── extraction.py    # Photo, URL, caption extraction (stubs)
-├── services/            # Business logic (extraction pipeline, storage, cache)
-└── middleware/
-    └── auth.py          # Firebase token verification (dev bypass included)
+└── services/            # Business logic layer
+    ├── user_service.py
+    ├── recipe_service.py
+    ├── collection_service.py
+    ├── cook_log_service.py
+    ├── voice_note_service.py
+    └── extraction_service.py
 ```
 
 ### Extraction Endpoints
 
 The three extraction endpoints (`/v1/extract/photo`, `/v1/extract/url`, `/v1/extract/caption`) currently return mock data. They validate inputs and return the correct response shape so the frontend can be built against them. Real extraction logic will be added in the services layer.
+
+### Testing
+
+```bash
+# Run all tests (uses SQLite in-memory, no Docker needed)
+FIREBASE_ENABLED=false poetry run pytest
+
+# Run with verbose output
+FIREBASE_ENABLED=false poetry run pytest -v
+
+# Run specific test file
+poetry run pytest tests/unit/services/test_recipe_service.py -v
+
+# Run tests matching a pattern
+poetry run pytest -k "test_create" -v
+```
+
+**Important:** Always run tests with `FIREBASE_ENABLED=false`. Tests are designed to use stub authentication mode and don't require Firebase credentials.
 
 ### File Storage
 

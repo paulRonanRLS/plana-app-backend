@@ -43,7 +43,7 @@ async def get_current_user(
     """
 
     # Dev mode bypass — no Firebase needed
-    if settings.firebase_credentials_path is None:
+    if not settings.firebase_credentials_path:
         return _ensure_dev_user(db)
 
     # Production: verify Firebase token

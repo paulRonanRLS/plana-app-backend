@@ -1,11 +1,40 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from datetime import datetime
 
 
+class VoiceNoteRead(BaseModel):
+    """Voice note attached to a cook log."""
+    id: str
+    cook_log_id: str
+    step_number: int | None
+    audio_url: str
+    duration_seconds: int
+    created_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
 class CookLogCreate(BaseModel):
+    """Create a new cook log entry."""
+    cooked_at: datetime
     servings_made: int
-    rating: int  # 1-5
+    rating: int = Field(..., ge=1, le=5)  # 1-5 validated
     notes: str | None = None
+
+
+class CookLogRead(BaseModel):
+    """Full cook log with voice notes."""
+    id: str
+    recipe_id: str
+    user_id: str
+    cooked_at: datetime
+    servings_made: int
+    rating: int
+    notes: str | None
+    voice_notes: list[VoiceNoteRead] = []
+    created_at: datetime
+
+    model_config = {"from_attributes": True}
 
 
 class CookLogUpdate(BaseModel):
@@ -13,16 +42,11 @@ class CookLogUpdate(BaseModel):
     notes: str | None = None
 
 
-class CookLogResponse(BaseModel):
-    id: str
-    recipe_id: str
-    cooked_at: datetime
-    servings_made: int
-    rating: int
-    notes: str | None
-    voice_note_count: int = 0
-
-    model_config = {"from_attributes": True}
+class RecipeStats(BaseModel):
+    """Statistics about how many times a recipe has been cooked."""
+    times_cooked: int
+    average_rating: float | None
+    last_cooked: datetime | None
 
 
 class RecipeCookSummary(BaseModel):
@@ -32,7 +56,7 @@ class RecipeCookSummary(BaseModel):
 
 
 class RecipeCookLogResponse(BaseModel):
-    entries: list[CookLogResponse]
+    entries: list[CookLogRead]
     summary: RecipeCookSummary
 
 
