@@ -1,4 +1,6 @@
+import logging
 import os
+import sys
 import toml
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -6,12 +8,16 @@ from pathlib import Path
 from fastapi import FastAPI, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
+from sqlalchemy import text
 
 from app.config import get_settings
 from app.core.firebase import init_firebase
+from app.database import engine
 from app.dependencies.auth import get_current_user
 from app.models.user import User
 from app.routers import auth, recipes, collections, extraction, users, cook_logs
+
+logger = logging.getLogger(__name__)
 
 # Read version from pyproject.toml
 _project_root = Path(__file__).parent.parent
@@ -24,6 +30,39 @@ except Exception:
     pass  # Use default version if file can't be read
 
 
+class StartupError(RuntimeError):
+    """Raised when a critical dependency is unavailable at startup."""
+
+
+def _check_database() -> None:
+    """Verify database is reachable. Raises StartupError on failure."""
+    try:
+        with engine.connect() as conn:
+            conn.execute(text("SELECT 1"))
+        logger.info("Startup check: Database connected")
+    except Exception as e:
+        raise StartupError(f"Database unreachable: {e}") from e
+
+
+def _check_redis() -> None:
+    """Verify Redis is reachable if enabled. Logs warning if unavailable."""
+    settings = get_settings()
+    if not settings.redis_enabled:
+        logger.info("Startup check: Redis disabled")
+        return
+
+    from app.core.redis_client import get_redis
+    client = get_redis()
+    if client is None:
+        logger.warning(
+            "Startup check: Redis enabled but unavailable — "
+            "continuing without cache"
+        )
+        return
+
+    logger.info("Startup check: Redis connected")
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Startup and shutdown events."""
@@ -32,13 +71,23 @@ async def lifespan(app: FastAPI):
     # Initialize Firebase Admin SDK
     init_firebase()
 
+    # Critical startup checks — abort if a required service is missing
+    try:
+        _check_database()
+    except StartupError as e:
+        logger.critical(f"STARTUP ABORTED: {e}")
+        sys.exit(1)
+
+    # Non-critical checks — warn and continue
+    _check_redis()
+
     # Create local upload directory if not using GCS
     if not settings.use_gcs:
         os.makedirs("uploads", exist_ok=True)
 
-    print(f"🍳 Recipe App API starting ({settings.app_env})")
-    print(f"📄 Swagger UI: http://localhost:8000/docs")
-    print(f"📄 ReDoc: http://localhost:8000/redoc")
+    print(f"Recipe App API starting ({settings.app_env})")
+    print(f"  Swagger UI: http://localhost:8000/docs")
+    print(f"  ReDoc: http://localhost:8000/redoc")
     yield
     print("Recipe App API shutting down")
 
@@ -77,10 +126,9 @@ app.include_router(extraction.router, prefix="/v1")
 @app.get("/health")
 def health_check():
     """
-    Basic health check endpoint for Railway and monitoring tools.
+    Liveness probe — confirms the process is running.
 
-    Returns service status, version, and environment.
-    No authentication required.
+    No authentication required. Does not check dependencies.
     """
     settings = get_settings()
     return {
@@ -88,6 +136,55 @@ def health_check():
         "version": _version,
         "environment": settings.app_env
     }
+
+
+@app.get("/health/ready")
+def readiness_check():
+    """
+    Readiness probe — confirms the service can handle requests.
+
+    Checks database connectivity and optionally Redis.
+    No authentication required.
+    """
+    settings = get_settings()
+    checks: dict = {}
+    healthy = True
+
+    # Database (critical)
+    try:
+        with engine.connect() as conn:
+            conn.execute(text("SELECT 1"))
+        checks["database"] = "ok"
+    except Exception as e:
+        checks["database"] = f"error: {e}"
+        healthy = False
+        logger.error(f"Readiness check: database unhealthy: {e}")
+
+    # Redis (non-critical)
+    if settings.redis_enabled:
+        try:
+            from app.core.redis_client import get_redis
+            client = get_redis()
+            if client and client.ping():
+                checks["redis"] = "ok"
+            else:
+                checks["redis"] = "unavailable"
+        except Exception as e:
+            checks["redis"] = f"error: {e}"
+            logger.warning(f"Readiness check: redis unhealthy: {e}")
+    else:
+        checks["redis"] = "disabled"
+
+    from fastapi.responses import JSONResponse
+    status_code = 200 if healthy else 503
+    return JSONResponse(
+        status_code=status_code,
+        content={
+            "status": "ok" if healthy else "degraded",
+            "version": _version,
+            "checks": checks,
+        }
+    )
 
 
 @app.get("/v1/config")
