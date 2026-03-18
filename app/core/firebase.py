@@ -5,7 +5,7 @@ Initializes the Firebase Admin SDK for server-side authentication.
 Guards against double-initialization and supports stub mode for testing.
 """
 
-import os
+import json
 import firebase_admin
 from firebase_admin import credentials
 
@@ -16,17 +16,18 @@ def init_firebase() -> None:
     """
     Initialize Firebase Admin SDK.
 
-    Reads FIREBASE_CREDENTIALS_PATH from environment and initializes
-    the Firebase app with service account credentials.
+    Reads FIREBASE_CREDENTIALS_JSON from environment (full service account JSON
+    as a string) and initializes the Firebase app with service account credentials.
+    This approach is required for Railway, which has no persistent filesystem for secrets.
 
     Guards:
     - If FIREBASE_ENABLED=false, skip initialization (stub mode for testing)
     - If already initialized, skip (prevents double-initialization)
-    - If credentials path doesn't exist, raise error
+    - If credentials JSON not set, raise error
 
     Raises:
-        FileNotFoundError: If credentials file doesn't exist when Firebase is enabled
-        ValueError: If Firebase is enabled but credentials path not set
+        ValueError: If Firebase is enabled but FIREBASE_CREDENTIALS_JSON is not set
+        json.JSONDecodeError: If FIREBASE_CREDENTIALS_JSON is not valid JSON
     """
     settings = get_settings()
 
@@ -40,20 +41,17 @@ def init_firebase() -> None:
         print("🔥 Firebase: Already initialized")
         return
 
-    # Validate credentials path
-    if not settings.firebase_credentials_path:
+    # Validate credentials JSON string
+    if not settings.firebase_credentials_json:
         raise ValueError(
-            "FIREBASE_ENABLED=true but FIREBASE_CREDENTIALS_PATH not set. "
-            "Set FIREBASE_CREDENTIALS_PATH to the path of your Firebase service account JSON file."
+            "FIREBASE_ENABLED=true but FIREBASE_CREDENTIALS_JSON not set. "
+            "Set FIREBASE_CREDENTIALS_JSON to the full contents of your Firebase "
+            "service account JSON file as a string."
         )
 
-    if not os.path.exists(settings.firebase_credentials_path):
-        raise FileNotFoundError(
-            f"Firebase credentials file not found: {settings.firebase_credentials_path}"
-        )
-
-    # Initialize Firebase Admin SDK
-    cred = credentials.Certificate(settings.firebase_credentials_path)
+    # Initialize Firebase Admin SDK from JSON string (no file required)
+    cred_dict = json.loads(settings.firebase_credentials_json)
+    cred = credentials.Certificate(cred_dict)
     firebase_admin.initialize_app(cred, {
         'projectId': settings.firebase_project_id,
     })

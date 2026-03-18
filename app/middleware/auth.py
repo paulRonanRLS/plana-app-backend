@@ -1,3 +1,4 @@
+import json
 from fastapi import Depends, HTTPException, Request
 from sqlalchemy.orm import Session
 
@@ -5,7 +6,7 @@ from app.config import get_settings, Settings
 from app.database import get_db
 from app.models.user import User
 
-# Test user for development (when Firebase is not configured)
+# Test user for development (when Firebase is disabled)
 DEV_USER = {
     "id": "usr_dev_000001",
     "name": "Dev User",
@@ -30,6 +31,21 @@ def _ensure_dev_user(db: Session) -> User:
     return user
 
 
+def _init_firebase(settings: Settings) -> None:
+    """
+    Initialise Firebase Admin SDK from JSON string env var (idempotent).
+    Uses firebase_credentials_json (a string containing the full service account JSON)
+    rather than a file path — required for Railway's ephemeral filesystem.
+    """
+    import firebase_admin
+    from firebase_admin import credentials
+
+    if not firebase_admin._apps:
+        cred_dict = json.loads(settings.firebase_credentials_json)
+        cred = credentials.Certificate(cred_dict)
+        firebase_admin.initialize_app(cred)
+
+
 async def get_current_user(
     request: Request,
     db: Session = Depends(get_db),
@@ -38,12 +54,13 @@ async def get_current_user(
     """
     Authenticate the current user.
 
-    In development (no Firebase credentials configured): returns a test user.
-    In production: verifies the Firebase ID token from the Authorization header.
+    In development (firebase_enabled=False): returns a hardcoded test user.
+    In production (firebase_enabled=True): verifies the Firebase ID token from
+    the Authorization header and upserts the user record on first login.
     """
 
-    # Dev mode bypass — no Firebase needed
-    if not settings.firebase_credentials_path:
+    # Dev bypass — keyed off explicit flag, not the presence of a file path
+    if not settings.firebase_enabled:
         return _ensure_dev_user(db)
 
     # Production: verify Firebase token
@@ -54,23 +71,29 @@ async def get_current_user(
     token = auth_header.split("Bearer ")[1]
 
     try:
-        # Lazy import — only needed when Firebase is configured
-        import firebase_admin
         from firebase_admin import auth as firebase_auth
-
-        # Initialize Firebase if not already done
-        if not firebase_admin._apps:
-            cred = firebase_admin.credentials.Certificate(settings.firebase_credentials_path)
-            firebase_admin.initialize_app(cred)
-
+        _init_firebase(settings)
         decoded = firebase_auth.verify_id_token(token)
         firebase_uid = decoded["uid"]
     except Exception:
         raise HTTPException(status_code=401, detail="Invalid Firebase token")
 
-    # Look up user by Firebase UID
+    # Upsert — create on first authenticated request if not yet in DB.
+    # This covers any request that arrives before /auth/login is explicitly called.
     user = db.query(User).filter(User.firebase_uid == firebase_uid).first()
     if not user:
-        raise HTTPException(status_code=401, detail="User not found. Please log in first.")
+        user = User(
+            firebase_uid=firebase_uid,
+            name=decoded.get("name"),
+            email=decoded.get("email"),
+            avatar_url=decoded.get("picture"),
+            auth_provider="google",
+            preferred_units="metric",
+            default_servings=4,
+            voice_enabled=True,
+        )
+        db.add(user)
+        db.commit()
+        db.refresh(user)
 
     return user

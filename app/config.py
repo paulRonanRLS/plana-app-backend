@@ -17,7 +17,7 @@ class Settings(BaseSettings):
 
     # Firebase Auth
     firebase_enabled: bool = False
-    firebase_credentials_path: str | None = None
+    firebase_credentials_json: str | None = None  # full service account JSON as string (for Railway)
     firebase_project_id: str = "rls-recipe"
     firebase_web_api_key: str | None = None
     firebase_test_email: str | None = None
