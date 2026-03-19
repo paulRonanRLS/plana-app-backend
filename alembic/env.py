@@ -1,9 +1,9 @@
+import os
 from logging.config import fileConfig
 
 from sqlalchemy import engine_from_config, pool
 from alembic import context
 
-from app.config import get_settings
 from app.database import Base
 
 # Import all models so they're registered with Base.metadata
@@ -15,9 +15,11 @@ from app.models import (  # noqa: F401
 
 config = context.config
 
-# Override sqlalchemy.url with our settings
-settings = get_settings()
-config.set_main_option("sqlalchemy.url", settings.database_url)
+# Read DATABASE_URL directly from the environment, falling back to alembic.ini.
+# This ensures Railway's injected DATABASE_URL is always used in production
+# rather than the default localhost value baked into config.py or alembic.ini.
+database_url = os.environ.get("DATABASE_URL") or config.get_main_option("sqlalchemy.url")
+config.set_main_option("sqlalchemy.url", database_url)
 
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
