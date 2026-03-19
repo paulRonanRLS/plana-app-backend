@@ -1,7 +1,7 @@
 import os
 from logging.config import fileConfig
 
-from sqlalchemy import engine_from_config, pool
+from sqlalchemy import create_engine, pool
 from alembic import context
 
 from app.database import Base
@@ -15,23 +15,23 @@ from app.models import (  # noqa: F401
 
 config = context.config
 
-# Read DATABASE_URL directly from the environment, falling back to alembic.ini.
-# This ensures Railway's injected DATABASE_URL is always used in production
-# rather than the default localhost value baked into config.py or alembic.ini.
-database_url = os.environ.get("DATABASE_URL") or config.get_main_option("sqlalchemy.url")
-config.set_main_option("sqlalchemy.url", database_url)
-
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
 target_metadata = Base.metadata
 
+# Resolve the database URL — Railway injects DATABASE_URL as an env var.
+# We read os.environ directly to bypass pydantic-settings and alembic.ini defaults.
+DATABASE_URL = (
+    os.environ.get("DATABASE_URL")
+    or config.get_main_option("sqlalchemy.url")
+)
+
 
 def run_migrations_offline() -> None:
     """Run migrations in 'offline' mode."""
-    url = config.get_main_option("sqlalchemy.url")
     context.configure(
-        url=url,
+        url=DATABASE_URL,
         target_metadata=target_metadata,
         literal_binds=True,
         dialect_opts={"paramstyle": "named"},
@@ -42,12 +42,13 @@ def run_migrations_offline() -> None:
 
 
 def run_migrations_online() -> None:
-    """Run migrations in 'online' mode."""
-    connectable = engine_from_config(
-        config.get_section(config.config_ini_section, {}),
-        prefix="sqlalchemy.",
-        poolclass=pool.NullPool,
-    )
+    """Run migrations in 'online' mode.
+
+    Creates the engine directly from the resolved DATABASE_URL rather than
+    using engine_from_config, which reads from alembic.ini and can ignore
+    the environment variable.
+    """
+    connectable = create_engine(DATABASE_URL, poolclass=pool.NullPool)
 
     with connectable.connect() as connection:
         context.configure(
