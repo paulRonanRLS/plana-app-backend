@@ -13,6 +13,10 @@ from app.models import (  # noqa: F401
     CookLog, VoiceNote,
 )
 
+# TEMPORARY DEBUG — remove after confirming DATABASE_URL is received
+print("DEBUG ENV DATABASE_URL:", os.environ.get("DATABASE_URL", "NOT FOUND"))
+print("DEBUG ENV keys with DB:", [k for k in os.environ if "DATA" in k or "PG" in k or "POST" in k])
+
 config = context.config
 
 if config.config_file_name is not None:
@@ -26,6 +30,8 @@ DATABASE_URL = (
     os.environ.get("DATABASE_URL")
     or config.get_main_option("sqlalchemy.url")
 )
+
+print("DEBUG RESOLVED DATABASE_URL:", DATABASE_URL)
 
 
 def run_migrations_offline() -> None:
