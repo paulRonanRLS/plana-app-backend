@@ -1,3 +1,4 @@
+import os
 from pydantic_settings import BaseSettings
 from functools import lru_cache
 
@@ -8,7 +9,7 @@ class Settings(BaseSettings):
     app_secret_key: str = "change-me-to-a-random-secret-key"
     cors_origins: list[str] = ["http://localhost:8081", "http://localhost:19006"]
 
-    # Database
+    # Database — Railway injects POSTGRES_URL; fall back to local default
     database_url: str = "postgresql://recipe_user:recipe_dev_password@localhost:5432/recipe_app"
 
     # Redis
@@ -23,22 +24,31 @@ class Settings(BaseSettings):
     firebase_test_email: str | None = None
     firebase_test_password: str | None = None
 
-    # Anthropic / Claude API (optional until extraction is built)
+    # Anthropic / Claude API
     anthropic_api_key: str | None = None
     claude_enabled: bool = True
 
-    # Google Cloud Vision (optional until photo capture is built)
+    # Google Cloud Vision
     google_cloud_credentials_path: str | None = None
     google_application_credentials: str | None = None
     google_cloud_enabled: bool = False
 
-    # Google Cloud Storage (optional - local storage used by default)
+    # Google Cloud Storage
     use_gcs: bool = False
     gcs_bucket_name: str | None = None
 
     @property
     def is_development(self) -> bool:
         return self.app_env == "development"
+
+    @property
+    def resolved_database_url(self) -> str:
+        """
+        Returns the correct database URL for the current environment.
+        Checks POSTGRES_URL first (Railway's managed variable name),
+        then falls back to DATABASE_URL / the pydantic default.
+        """
+        return os.environ.get("POSTGRES_URL") or self.database_url
 
     model_config = {"env_file": ".env", "env_file_encoding": "utf-8"}
 

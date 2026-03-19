@@ -13,10 +13,6 @@ from app.models import (  # noqa: F401
     CookLog, VoiceNote,
 )
 
-# TEMPORARY DEBUG — remove after confirming DATABASE_URL is received
-print("DEBUG ENV DATABASE_URL:", os.environ.get("DATABASE_URL", "NOT FOUND"))
-print("DEBUG ENV keys with DB:", [k for k in os.environ if "DATA" in k or "PG" in k or "POST" in k])
-
 config = context.config
 
 if config.config_file_name is not None:
@@ -24,14 +20,14 @@ if config.config_file_name is not None:
 
 target_metadata = Base.metadata
 
-# Resolve the database URL — Railway injects DATABASE_URL as an env var.
-# We read os.environ directly to bypass pydantic-settings and alembic.ini defaults.
+# Resolve the database URL.
+# Railway injects POSTGRES_URL for managed Postgres — check that first.
+# Falls back to DATABASE_URL, then alembic.ini default for local dev.
 DATABASE_URL = (
-    os.environ.get("DATABASE_URL")
+    os.environ.get("POSTGRES_URL")
+    or os.environ.get("DATABASE_URL")
     or config.get_main_option("sqlalchemy.url")
 )
-
-print("DEBUG RESOLVED DATABASE_URL:", DATABASE_URL)
 
 
 def run_migrations_offline() -> None:
@@ -48,12 +44,7 @@ def run_migrations_offline() -> None:
 
 
 def run_migrations_online() -> None:
-    """Run migrations in 'online' mode.
-
-    Creates the engine directly from the resolved DATABASE_URL rather than
-    using engine_from_config, which reads from alembic.ini and can ignore
-    the environment variable.
-    """
+    """Run migrations in 'online' mode."""
     connectable = create_engine(DATABASE_URL, poolclass=pool.NullPool)
 
     with connectable.connect() as connection:
