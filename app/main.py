@@ -15,7 +15,7 @@ from app.core.firebase import init_firebase
 from app.database import engine
 from app.dependencies.auth import get_current_user
 from app.models.user import User
-from app.routers import auth, recipes, collections, extraction, users, cook_logs
+from app.routers import auth, recipes, collections, extraction, users, cook_logs, larder
 
 logger = logging.getLogger(__name__)
 
@@ -121,6 +121,7 @@ app.include_router(recipes.router, prefix="/v1")
 app.include_router(collections.router, prefix="/v1")
 app.include_router(cook_logs.router, prefix="/v1")
 app.include_router(extraction.router, prefix="/v1")
+app.include_router(larder.router, prefix="/v1")
 
 
 @app.get("/health")

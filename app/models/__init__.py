@@ -2,6 +2,7 @@ from app.models.user import User
 from app.models.recipe import Recipe, Ingredient, Step, Equipment, Nutrition, Pairing
 from app.models.collection import Collection, CollectionRecipe, Collaborator
 from app.models.cook_log import CookLog, VoiceNote
+from app.models.larder import LarderItem
 
 __all__ = [
     "User",
@@ -16,4 +17,5 @@ __all__ = [
     "Collaborator",
     "CookLog",
     "VoiceNote",
+    "LarderItem",
 ]

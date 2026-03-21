@@ -25,3 +25,4 @@ class User(Base):
     recipes = relationship("Recipe", back_populates="owner", cascade="all, delete-orphan")
     collections = relationship("Collection", back_populates="owner", cascade="all, delete-orphan")
     cook_logs = relationship("CookLog", back_populates="user", cascade="all, delete-orphan")
+    larder_items = relationship("LarderItem", back_populates="owner", cascade="all, delete-orphan")
