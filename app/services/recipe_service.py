@@ -4,7 +4,7 @@ Recipe service for business logic operations.
 Handles all recipe CRUD operations and related business logic.
 """
 
-from sqlalchemy.orm import Session, joinedload
+from sqlalchemy.orm import Session, joinedload, subqueryload
 from sqlalchemy import func
 
 from app.models.recipe import Recipe, Ingredient, Step, Equipment, Nutrition, Pairing
@@ -112,7 +112,7 @@ def list_recipes(
     Returns:
         Tuple of (recipes list, next_cursor, has_more, total_count)
     """
-    query = db.query(Recipe).filter(Recipe.owner_id == owner_id)
+    query = db.query(Recipe).options(subqueryload(Recipe.ingredients)).filter(Recipe.owner_id == owner_id)
 
     # Apply filters
     if search_query:

@@ -14,7 +14,7 @@ from app.models.user import User
 from app.models.cook_log import CookLog
 from app.schemas.recipe import (
     RecipeCreate, RecipeUpdate, RecipeResponse, RecipeListItem,
-    RecipeListResponse, NoteCreate, CookSummary,
+    RecipeListIngredient, RecipeListResponse, NoteCreate, CookSummary,
     IngredientResponse, StepResponse, EquipmentResponse,
     NutritionResponse, PairingResponse,
 )
@@ -109,6 +109,7 @@ def list_recipes(
                 difficulty=r.difficulty,
                 total_time=r.total_time,
                 tags=r.tags,
+                ingredients=[RecipeListIngredient(id=i.id, name=i.name) for i in r.ingredients],
                 avg_rating=round(float(avg_rating), 1) if avg_rating else None,
                 times_cooked=log_count or 0,
                 created_at=r.created_at,

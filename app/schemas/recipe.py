@@ -112,6 +112,13 @@ class CookSummary(BaseModel):
     last_cooked_at: datetime | None
 
 
+class RecipeListIngredient(BaseModel):
+    id: str
+    name: str
+
+    model_config = {"from_attributes": True}
+
+
 class RecipeListItem(BaseModel):
     id: str
     title: str
@@ -120,6 +127,7 @@ class RecipeListItem(BaseModel):
     difficulty: str | None
     total_time: int | None
     tags: list[str] | None
+    ingredients: list[RecipeListIngredient] = []
     avg_rating: float | None = None
     times_cooked: int = 0
     created_at: datetime
