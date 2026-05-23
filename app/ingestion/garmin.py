@@ -15,9 +15,13 @@ from typing import Optional
 from sqlalchemy.orm import Session
 
 from app.config import get_settings
+from app.core.redis_client import cache_get, cache_set
 from app.models.metric_reading import MetricReading, MetricSource, MetricType
 
 logger = logging.getLogger(__name__)
+
+_GARMIN_TOKEN_KEY = "garmin:session_token"
+_GARMIN_TOKEN_TTL = 23 * 3600  # 23 hours — Garmin tokens valid for 24h
 
 
 def _today_utc_morning() -> datetime:
@@ -94,6 +98,44 @@ def _persist(db: Session, reading_dicts: list[dict]) -> list[MetricReading]:
         rows = _build(id_offset=0)  # triggers max_id lookup
         db.commit()
         return rows
+
+
+# ── Session token caching ──────────────────────────────────────────────────────
+
+def _login_with_token_cache(client) -> None:
+    """Login to Garmin Connect, reusing a cached session token when available.
+
+    garminconnect 0.3.x: pass a token string >512 chars to login(tokenstore=...)
+    and the library calls self.client.loads() internally, skipping re-auth.
+    On success the fresh token is serialised back to Redis.
+    If cached login fails for any reason, falls back to full credential login.
+    """
+    cached = cache_get(_GARMIN_TOKEN_KEY)
+
+    if cached:
+        try:
+            client.login(tokenstore=cached)
+            logger.debug("Garmin: logged in via cached session token")
+            # Refresh the TTL so tokens don't expire mid-session
+            _store_token(client)
+            return
+        except Exception as exc:
+            logger.warning(f"Garmin: cached token login failed ({exc}), falling back to credentials")
+
+    # Full credential login — only reached on first run or after token expiry
+    client.login()
+    logger.info("Garmin: logged in with credentials")
+    _store_token(client)
+
+
+def _store_token(client) -> None:
+    """Serialise the current Garmin session token to Redis."""
+    try:
+        token_str = client.client.dumps()
+        cache_set(_GARMIN_TOKEN_KEY, token_str, _GARMIN_TOKEN_TTL)
+        logger.debug("Garmin: session token cached in Redis")
+    except Exception as exc:
+        logger.warning(f"Garmin: could not cache session token: {exc}")
 
 
 # ── Garmin API parsing ─────────────────────────────────────────────────────────
@@ -185,7 +227,7 @@ def sync_garmin(db: Session) -> list[MetricReading]:
     try:
         from garminconnect import Garmin  # type: ignore[import]
         client = Garmin(settings.garmin_email, settings.garmin_password)
-        client.login()
+        _login_with_token_cache(client)
         today_str = date.today().isoformat()
         reading_dicts = _parse_garmin_readings(client, today_str)
         saved = _persist(db, reading_dicts)

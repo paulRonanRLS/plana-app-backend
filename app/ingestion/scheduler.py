@@ -58,10 +58,10 @@ def create_scheduler() -> BackgroundScheduler:
     """Build and configure the scheduler. Does not start it."""
     scheduler = BackgroundScheduler()
 
-    # Garmin: every 15 min, 06:00–09:59 local time
+    # Garmin: once per hour at :00, 06:00–09:00 local time
     scheduler.add_job(
         _garmin_job,
-        CronTrigger(hour="6-9", minute="*/15"),
+        CronTrigger(hour="6-9", minute=0),
         id="garmin_poll",
         name="Garmin overnight data poll",
         replace_existing=True,
@@ -84,7 +84,7 @@ def create_scheduler() -> BackgroundScheduler:
     )
 
     logger.info(
-        "Scheduler configured: garmin_poll (06–09:45 ×15min), "
+        "Scheduler configured: garmin_poll (06:00–09:00 ×1h), "
         "garmin_backstop (10:00), strava_poll (×30min)"
     )
     return scheduler

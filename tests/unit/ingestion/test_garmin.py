@@ -1,11 +1,14 @@
 """Unit tests for app/ingestion/garmin.py — all in stub mode (GARMIN_ENABLED=false)."""
 
 from datetime import datetime, timezone
+from unittest.mock import MagicMock, patch
 
 import pytest
 
 from app.ingestion.garmin import (
+    _GARMIN_TOKEN_KEY,
     _has_today_data,
+    _login_with_token_cache,
     _persist,
     _stub_reading_dicts,
     sync_garmin,
@@ -136,6 +139,73 @@ def test_sync_garmin_hrv_plausible(test_db, monkeypatch):
     rows = sync_garmin(test_db)
     hrv = next(r for r in rows if r.metric_type == MetricType.hrv)
     assert 20 <= hrv.value <= 200
+
+
+# ── _login_with_token_cache ────────────────────────────────────────────────────
+
+def test_login_uses_cached_token_when_available():
+    """When Redis has a cached token, login() is called with it and creds are not used."""
+    client = MagicMock()
+    client.client.dumps.return_value = "x" * 600  # >512 chars = token string
+
+    with patch("app.ingestion.garmin.cache_get", return_value="token" * 120):
+        with patch("app.ingestion.garmin.cache_set"):
+            _login_with_token_cache(client)
+
+    client.login.assert_called_once_with(tokenstore="token" * 120)
+
+
+def test_login_falls_back_to_credentials_on_token_failure():
+    """When cached token login raises, fall back to credential login."""
+    client = MagicMock()
+    client.client.dumps.return_value = "x" * 600
+    client.login.side_effect = [Exception("token expired"), None]
+
+    with patch("app.ingestion.garmin.cache_get", return_value="stale" * 120):
+        with patch("app.ingestion.garmin.cache_set"):
+            _login_with_token_cache(client)
+
+    assert client.login.call_count == 2
+    # Second call is credential login (no tokenstore kwarg)
+    assert "tokenstore" not in client.login.call_args_list[1].kwargs
+
+
+def test_login_stores_token_after_credential_login():
+    """After a fresh credential login, the token is written to Redis."""
+    client = MagicMock()
+    client.client.dumps.return_value = "x" * 600
+
+    stored = {}
+    with patch("app.ingestion.garmin.cache_get", return_value=None):
+        with patch("app.ingestion.garmin.cache_set", side_effect=lambda k, v, t: stored.update({k: v})):
+            _login_with_token_cache(client)
+
+    assert _GARMIN_TOKEN_KEY in stored
+
+
+def test_login_refreshes_token_after_cached_login():
+    """After a successful cached token login, the token TTL is refreshed."""
+    client = MagicMock()
+    client.client.dumps.return_value = "fresh_token" * 60
+
+    stored = {}
+    with patch("app.ingestion.garmin.cache_get", return_value="old_token" * 60):
+        with patch("app.ingestion.garmin.cache_set", side_effect=lambda k, v, t: stored.update({k: v})):
+            _login_with_token_cache(client)
+
+    assert _GARMIN_TOKEN_KEY in stored
+
+
+def test_login_no_crash_if_redis_unavailable():
+    """If Redis is unavailable (cache_get returns None), falls back to credentials."""
+    client = MagicMock()
+    client.client.dumps.return_value = "x" * 600
+
+    with patch("app.ingestion.garmin.cache_get", return_value=None):
+        with patch("app.ingestion.garmin.cache_set"):
+            _login_with_token_cache(client)
+
+    client.login.assert_called_once_with()  # credential login, no tokenstore
 
 
 # ── _persist ───────────────────────────────────────────────────────────────────
