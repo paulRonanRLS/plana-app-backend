@@ -63,10 +63,33 @@ async def lifespan(app: FastAPI):
 
     _check_redis()
 
+    # ── Telegram bot ───────────────────────────────────────────────────────────
+    bot_app = None
+    if settings.telegram_enabled:
+        if not settings.telegram_bot_token:
+            logger.error("TELEGRAM_ENABLED=true but TELEGRAM_BOT_TOKEN not set — bot disabled")
+        else:
+            from app.bot.handler import create_application
+            bot_app = create_application(settings.telegram_bot_token)
+            await bot_app.initialize()
+            await bot_app.start()
+            await bot_app.updater.start_polling(drop_pending_updates=True)
+            logger.info("Telegram bot polling started")
+    else:
+        logger.info("Telegram bot disabled (TELEGRAM_ENABLED=false)")
+
     print(f"planA API starting ({settings.app_env})")
     print(f"  Swagger UI: http://localhost:8000/docs")
     print(f"  ReDoc: http://localhost:8000/redoc")
     yield
+
+    # ── Shutdown ───────────────────────────────────────────────────────────────
+    if bot_app is not None:
+        logger.info("Stopping Telegram bot...")
+        await bot_app.updater.stop()
+        await bot_app.stop()
+        await bot_app.shutdown()
+
     print("planA API shutting down")
 
 
