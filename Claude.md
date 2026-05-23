@@ -167,7 +167,7 @@ The intelligence layer (app/intelligence/) handles all LLM interactions:
 All LLM calls go through app/core/claude_client.py. The intelligence layer never calls
 the Anthropic API directly.
 
-**Model**: Always use claude-sonnet-4-20250514 for intelligence layer calls.
+**Model**: Always use claude-sonnet-4-6 for intelligence layer calls.
 
 ## Resource Model
 Four universal resources — every goal draws on all four:

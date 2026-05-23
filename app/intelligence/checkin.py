@@ -15,7 +15,7 @@ from app.services.goal import TERMINAL_STATES
 
 logger = logging.getLogger(__name__)
 
-MODEL = "claude-sonnet-4-20250514"
+MODEL = "claude-sonnet-4-6"
 MAX_TOKENS = 400
 
 _STUB = (

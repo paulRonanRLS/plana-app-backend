@@ -103,7 +103,7 @@ async def _claude_response(
         trimmed = messages[-MAX_HISTORY:]
         resp = await asyncio.to_thread(
             client.messages.create,
-            model="claude-sonnet-4-20250514",
+            model="claude-sonnet-4-6",
             max_tokens=400,
             system=system_prompt,
             messages=trimmed,
