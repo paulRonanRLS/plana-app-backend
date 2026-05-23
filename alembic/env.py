@@ -6,12 +6,8 @@ from alembic import context
 
 from app.database import Base
 
-# Import all models so they're registered with Base.metadata
-from app.models import (  # noqa: F401
-    User, Recipe, Ingredient, Step, Equipment, Nutrition, Pairing,
-    Collection, CollectionRecipe, Collaborator,
-    CookLog, VoiceNote,
-)
+# Import models here as they are created so Alembic autogenerate picks them up
+# from app.models.goal import Goal  # noqa: F401
 
 config = context.config
 
@@ -20,9 +16,6 @@ if config.config_file_name is not None:
 
 target_metadata = Base.metadata
 
-# Resolve the database URL.
-# Railway injects POSTGRES_URL for managed Postgres — check that first.
-# Falls back to DATABASE_URL, then alembic.ini default for local dev.
 DATABASE_URL = (
     os.environ.get("POSTGRES_URL")
     or os.environ.get("DATABASE_URL")
@@ -31,7 +24,6 @@ DATABASE_URL = (
 
 
 def run_migrations_offline() -> None:
-    """Run migrations in 'offline' mode."""
     context.configure(
         url=DATABASE_URL,
         target_metadata=target_metadata,
@@ -44,7 +36,6 @@ def run_migrations_offline() -> None:
 
 
 def run_migrations_online() -> None:
-    """Run migrations in 'online' mode."""
     connectable = create_engine(DATABASE_URL, poolclass=pool.NullPool)
 
     with connectable.connect() as connection:

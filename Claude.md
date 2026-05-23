@@ -220,15 +220,20 @@ All non-live tests must pass before any session ends.
 Never change test files to make tests pass — fix the implementation.
 
 ## Current State
-Forked from recipe-app-backend. Recipe-specific code removed. Infrastructure retained.
+Forked from recipe-app-backend. Recipe-specific code removed. Infrastructure foundation clean.
 
 **Completed:**
-- FastAPI app structure
-- SQLAlchemy + Alembic setup
+- FastAPI app structure (app/main.py) — planA branding, no recipe or auth references
+- SQLAlchemy + Alembic setup (app/database.py, alembic/)
 - Claude client (app/core/claude_client.py)
 - Redis client (app/core/redis_client.py)
-- Docker Compose (TimescaleDB + Redis)
-- Health endpoints
+- Docker Compose — TimescaleDB (timescale/timescaledb-ha:pg16) + Redis
+- Health endpoints (/health, /health/ready)
+- Config (app/config.py) — all planA env vars, no Firebase/GCS
+- Empty module stubs: app/bot/, app/ingestion/, app/intelligence/, app/web/
+- pyproject.toml updated — recipe deps removed, planA deps added
+  (python-telegram-bot, garminconnect, apscheduler, pytz, python-jose)
+- Clean test fixtures (tests/conftest.py) — no recipe models
 
 **To build (in order):**
 1. Core data models — Goal, MetricReading, Milestone, Sacrifice, ResourceProfile

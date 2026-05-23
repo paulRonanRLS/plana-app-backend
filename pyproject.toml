@@ -1,9 +1,10 @@
 [tool.poetry]
-name = "recipe-app-backend"
+name = "plana-backend"
 version = "0.1.0"
-description = "Recipe App API - Capture, Collect, Cook"
+description = "planA — Personal goal tracking API"
 authors = ["Paul"]
 readme = "README.md"
+package-mode = false
 
 [tool.poetry.dependencies]
 python = "^3.11"
@@ -17,18 +18,15 @@ pydantic-settings = "^2.0.0"
 redis = "^5.0.0"
 hiredis = "^3.0.0"
 python-multipart = "^0.0.18"
-google-cloud-vision = "^3.8.0"
-google-cloud-storage = "^2.14.0"
 httpx = "^0.28.0"
 python-dotenv = "^1.0.0"
-firebase-admin = "^6.6.0"
 anthropic = "^0.43.0"
-trafilatura = "^2.0.0"
-beautifulsoup4 = "^4.12.0"
-lxml = "^5.0.0"
 requests = "^2.32.0"
-pillow = "^11.0.0"
-toml = "^0.10.2"
+python-telegram-bot = ">=21.0"
+garminconnect = "*"
+apscheduler = "^3.10.0"
+pytz = "^2024.1"
+python-jose = "^3.3.0"
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^8.0.0"
@@ -47,7 +45,7 @@ python_functions = ["test_*"]
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
 markers = [
-    "live: marks tests that require real external services (Claude API, etc.) - run manually only"
+    "live: marks tests that require real external services (Claude API, Garmin, Strava, Telegram) - run manually only"
 ]
 
 [tool.ruff]

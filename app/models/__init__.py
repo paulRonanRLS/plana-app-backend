@@ -1,21 +1,6 @@
-from app.models.user import User
-from app.models.recipe import Recipe, Ingredient, Step, Equipment, Nutrition, Pairing
-from app.models.collection import Collection, CollectionRecipe, Collaborator
-from app.models.cook_log import CookLog, VoiceNote
-from app.models.larder import LarderItem
-
-__all__ = [
-    "User",
-    "Recipe",
-    "Ingredient",
-    "Step",
-    "Equipment",
-    "Nutrition",
-    "Pairing",
-    "Collection",
-    "CollectionRecipe",
-    "Collaborator",
-    "CookLog",
-    "VoiceNote",
-    "LarderItem",
-]
+# Models will be added as features are implemented:
+# - goal.py: Goal, lifecycle state management
+# - metric_reading.py: TimescaleDB hypertable for HRV, sleep, TSS, weight
+# - milestone.py: Milestone progression
+# - sacrifice.py: Sacrifice attribution
+# - resource_profile.py: Resource envelope
