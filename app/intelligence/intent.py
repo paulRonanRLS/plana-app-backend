@@ -53,7 +53,7 @@ def classify(
         f"{goals_ctx}\n\n"
         "Classify this message into exactly one intent label.\n"
         "Labels: morning_checkin, progress_capture, physical_state, "
-        "illness_log, metric_log, goal_query, free_response\n"
+        "illness_log, metric_log, goal_query, activity_query, free_response\n"
         f"Message: {text}\n\n"
         "Reply with ONLY the label."
     )

@@ -30,9 +30,11 @@ from app.core.claude_client import get_client
 from app.core.redis_client import get_redis
 from app.database import SessionLocal
 from app.intelligence import checkin as checkin_module
+from app.intelligence import activity_query as activity_query_module
 from app.models.goal import Goal, GoalState
 from app.services.goal import TERMINAL_STATES
 from app.services.resource import get_resource_tension
+from app.services.activity import parse_date_reference, query_activities, _parse_activity_type
 
 logger = logging.getLogger(__name__)
 
@@ -87,6 +89,7 @@ def _stub_response(intent: str, is_morning: bool) -> str:
         "illness_log": "Got it. How long have you been feeling this way?",
         "metric_log": "Logged.",
         "goal_query": "Ask me again with Claude enabled for real goal analysis.",
+        "activity_query": "Activity lookup requires Claude enabled.",
         "free_response": "Tell me more.",
     }.get(intent, "Got it.")
 
@@ -152,6 +155,15 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
                     time_ratio=tension.time_ratio,
                     recovery_ratio=tension.recovery_ratio,
                     attention_count=tension.attention_count,
+                )
+            elif intent == "activity_query":
+                start, end = parse_date_reference(text)
+                activity_type = _parse_activity_type(text)
+                activities = await asyncio.to_thread(
+                    query_activities, db, start, end, activity_type
+                )
+                response_text = await asyncio.to_thread(
+                    activity_query_module.build_response, text, activities, claude_client
                 )
             else:
                 system_prompt = _build_system_prompt(goals)

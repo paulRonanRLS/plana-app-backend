@@ -18,6 +18,7 @@ INTENTS = frozenset({
     "illness_log",
     "metric_log",
     "goal_query",
+    "activity_query",
     "free_response",
 })
 
@@ -25,11 +26,12 @@ _USER_TEMPLATE = """\
 Classify this message into exactly one intent:
 
   morning_checkin  — waking report: subjective feel, energy, sleep quality
-  progress_capture — activity or work done toward a specific goal
+  progress_capture — reporting an activity or work just done toward a goal
   physical_state   — physical symptom: sore, fatigued, injured, niggles
   illness_log      — illness start, progression, or recovery note
   metric_log       — a specific measurable value (weight, alcohol units, etc.)
   goal_query       — question about goal status, progress, or resources
+  activity_query   — question about past workouts, rides, runs, or training sessions (e.g. "what was my ride on Sunday", "how far did I run last week")
   free_response    — continuation of conversation or anything else
 
 Message: {text}
@@ -77,6 +79,10 @@ def _stub_classify(text: str, is_morning: bool) -> str:
         return "goal_query"
     if any(w in low for w in ("kg", "lb", "weight", "unit", "alcohol", "drank")):
         return "metric_log"
+    _activity_keywords = ("ride", "run", "rode", "ran", "swim", "swam", "workout", "training", "session")
+    _temporal_keywords = ("yesterday", "last", "sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "week", "today")
+    if any(w in low for w in _activity_keywords) and any(w in low for w in _temporal_keywords):
+        return "activity_query"
     if any(w in low for w in ("ran", "cycled", "trained", "wrote", "cooked", "did", "finished", "completed")):
         return "progress_capture"
     return "free_response"

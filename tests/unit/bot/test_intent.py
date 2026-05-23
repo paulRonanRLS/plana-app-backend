@@ -109,6 +109,35 @@ def test_all_intents_defined():
         "illness_log",
         "metric_log",
         "goal_query",
+        "activity_query",
         "free_response",
     }
     assert INTENTS == expected
+
+
+# ── activity_query stub ────────────────────────────────────────────────────────
+
+def test_stub_activity_query_ride_yesterday():
+    assert _stub_classify("what was my ride yesterday?", is_morning=False) == "activity_query"
+
+
+def test_stub_activity_query_run_last_week():
+    assert _stub_classify("how far did I run last week", is_morning=False) == "activity_query"
+
+
+def test_stub_activity_query_ride_sunday():
+    assert _stub_classify("show me my ride on Sunday", is_morning=False) == "activity_query"
+
+
+def test_stub_activity_query_workout_today():
+    assert _stub_classify("what was my workout today?", is_morning=False) == "activity_query"
+
+
+def test_stub_activity_no_temporal_not_activity_query():
+    """An activity keyword without a temporal reference should not be activity_query."""
+    result = _stub_classify("I love to run", is_morning=False)
+    assert result != "activity_query"
+
+
+def test_stub_activity_query_session_last():
+    assert _stub_classify("what was my training session last Tuesday?", is_morning=False) == "activity_query"
