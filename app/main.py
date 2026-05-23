@@ -63,6 +63,12 @@ async def lifespan(app: FastAPI):
 
     _check_redis()
 
+    # ── Ingestion scheduler ────────────────────────────────────────────────────
+    from app.ingestion.scheduler import create_scheduler
+    scheduler = create_scheduler()
+    scheduler.start()
+    print("  Scheduler: garmin (06:00–10:00 ×15min + backstop), strava (×30min)")
+
     # ── Telegram bot ───────────────────────────────────────────────────────────
     bot_app = None
     if settings.telegram_enabled:
@@ -84,6 +90,9 @@ async def lifespan(app: FastAPI):
     yield
 
     # ── Shutdown ───────────────────────────────────────────────────────────────
+    scheduler.shutdown(wait=False)
+    logger.info("Ingestion scheduler stopped")
+
     if bot_app is not None:
         logger.info("Stopping Telegram bot...")
         await bot_app.updater.stop()

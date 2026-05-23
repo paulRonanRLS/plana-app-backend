@@ -12,12 +12,14 @@ class MetricType(str, enum.Enum):
     sleep_duration_hours = "sleep_duration_hours"
     resting_hr = "resting_hr"
     body_battery = "body_battery"
+    stress = "stress"                     # Garmin all-day average stress (0–100)
     tss = "tss"
     weight = "weight"
     subjective_feel = "subjective_feel"   # -1=flat, 0=neutral, 1=good
     alcohol_units = "alcohol_units"
     physical_state = "physical_state"     # text_value carries the description
     illness_log = "illness_log"           # text_value carries start/recovery note
+    activity = "activity"                 # Strava/Garmin activity; details in notes JSON
 
 
 class MetricSource(str, enum.Enum):
