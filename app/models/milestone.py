@@ -1,0 +1,41 @@
+import enum
+from datetime import datetime, timezone
+
+from sqlalchemy import Column, Integer, String, DateTime, Date, Enum, Text, ForeignKey
+from sqlalchemy.orm import relationship
+
+from app.database import Base
+
+
+class MilestoneState(str, enum.Enum):
+    pending = "pending"
+    active = "active"
+    achieved = "achieved"
+    missed = "missed"
+
+
+class Milestone(Base):
+    __tablename__ = "milestones"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    goal_id = Column(Integer, ForeignKey("goals.id"), nullable=False, index=True)
+    title = Column(String(255), nullable=False)
+    description = Column(Text, nullable=True)
+    state = Column(Enum(MilestoneState), nullable=False, default=MilestoneState.pending)
+    sequence = Column(Integer, nullable=False, default=0)
+    target_date = Column(Date, nullable=True)
+
+    created_at = Column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=lambda: datetime.now(timezone.utc),
+    )
+    updated_at = Column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc),
+    )
+    achieved_at = Column(DateTime(timezone=True), nullable=True)
+
+    goal = relationship("Goal", back_populates="milestones")

@@ -1,6 +1,18 @@
-# Models will be added as features are implemented:
-# - goal.py: Goal, lifecycle state management
-# - metric_reading.py: TimescaleDB hypertable for HRV, sleep, TSS, weight
-# - milestone.py: Milestone progression
-# - sacrifice.py: Sacrifice attribution
-# - resource_profile.py: Resource envelope
+from app.models.goal import Goal, GoalState
+from app.models.metric_reading import MetricReading, MetricType, MetricSource
+from app.models.milestone import Milestone, MilestoneState
+from app.models.sacrifice import Sacrifice, ResourceType
+from app.models.resource_profile import ResourceProfile
+
+__all__ = [
+    "Goal",
+    "GoalState",
+    "MetricReading",
+    "MetricType",
+    "MetricSource",
+    "Milestone",
+    "MilestoneState",
+    "Sacrifice",
+    "ResourceType",
+    "ResourceProfile",
+]

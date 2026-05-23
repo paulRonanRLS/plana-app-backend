@@ -6,8 +6,8 @@ from alembic import context
 
 from app.database import Base
 
-# Import models here as they are created so Alembic autogenerate picks them up
-# from app.models.goal import Goal  # noqa: F401
+# Import all models so Alembic autogenerate picks them up
+import app.models  # noqa: F401
 
 config = context.config
 
