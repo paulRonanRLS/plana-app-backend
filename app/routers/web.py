@@ -416,6 +416,40 @@ def get_integrations_status():
     }
 
 
+@router.post("/v1/admin/sync/garmin")
+def trigger_garmin_sync(db: Session = Depends(get_db)):
+    """Manually trigger a Garmin sync. Calls the same function as the scheduled job."""
+    from app.ingestion.garmin import sync_garmin
+    from app.core.redis_client import cache_set
+
+    try:
+        rows = sync_garmin(db)
+        last_sync = datetime.now(timezone.utc)
+        cache_set("sync:garmin:last_success", last_sync.isoformat(), 7 * 24 * 3600)
+        logger.info(f"Manual Garmin sync: {len(rows)} records")
+        return {"status": "ok", "records_synced": len(rows), "last_sync": last_sync.isoformat()}
+    except Exception as exc:
+        logger.error(f"Manual Garmin sync failed: {exc}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+@router.post("/v1/admin/sync/strava")
+def trigger_strava_sync(db: Session = Depends(get_db)):
+    """Manually trigger a Strava sync. Calls the same function as the scheduled job."""
+    from app.ingestion.strava import sync_strava
+    from app.core.redis_client import cache_set
+
+    try:
+        rows = sync_strava(db)
+        last_sync = datetime.now(timezone.utc)
+        cache_set("sync:strava:last_success", last_sync.isoformat(), 7 * 24 * 3600)
+        logger.info(f"Manual Strava sync: {len(rows)} records")
+        return {"status": "ok", "records_synced": len(rows), "last_sync": last_sync.isoformat()}
+    except Exception as exc:
+        logger.error(f"Manual Strava sync failed: {exc}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
 @router.post("/v1/capture")
 def capture(body: CaptureRequest, db: Session = Depends(get_db)):
     text = body.text.strip()

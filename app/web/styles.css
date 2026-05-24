@@ -870,3 +870,18 @@ div.ms-container:last-of-type { border-bottom: none; }
 .sync-amber::before { background: var(--rag-amber); }
 .sync-red::before   { background: var(--rag-red); }
 .sync-never::before { background: var(--rag-none); }
+
+.sync-btn {
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 0.9rem;
+  color: var(--text-secondary);
+  padding: 0 0.1rem;
+  line-height: 1;
+  vertical-align: middle;
+  transition: color 0.15s;
+  margin-left: 0.15rem;
+}
+.sync-btn:hover:not(:disabled) { color: var(--navy); }
+.sync-btn:disabled { opacity: 0.35; cursor: default; }

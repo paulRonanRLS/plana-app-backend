@@ -123,3 +123,70 @@ def test_integrations_shape(test_app, test_db):
         assert "last_sync" in data[key]
         assert "status" in data[key]
         assert data[key]["status"] in ("green", "amber", "red", "never")
+
+
+# ── POST /v1/admin/sync/garmin ────────────────────────────────────────────────
+
+def test_garmin_sync_returns_200(test_app, test_db):
+    resp = test_app.post("/v1/admin/sync/garmin")
+    assert resp.status_code == 200
+
+
+def test_garmin_sync_response_shape(test_app, test_db):
+    data = test_app.post("/v1/admin/sync/garmin").json()
+    assert data["status"] == "ok"
+    assert "records_synced" in data
+    assert "last_sync" in data
+
+
+def test_garmin_sync_records_synced_is_int(test_app, test_db):
+    data = test_app.post("/v1/admin/sync/garmin").json()
+    assert isinstance(data["records_synced"], int)
+
+
+def test_garmin_sync_last_sync_is_iso_string(test_app, test_db):
+    from datetime import datetime
+    data = test_app.post("/v1/admin/sync/garmin").json()
+    # Should parse without error
+    datetime.fromisoformat(data["last_sync"])
+
+
+def test_garmin_sync_idempotent(test_app, test_db):
+    # Second call returns 0 records (already synced today)
+    test_app.post("/v1/admin/sync/garmin")
+    data = test_app.post("/v1/admin/sync/garmin").json()
+    assert data["status"] == "ok"
+    assert data["records_synced"] == 0
+
+
+# ── POST /v1/admin/sync/strava ────────────────────────────────────────────────
+
+def test_strava_sync_returns_200(test_app, test_db):
+    resp = test_app.post("/v1/admin/sync/strava")
+    assert resp.status_code == 200
+
+
+def test_strava_sync_response_shape(test_app, test_db):
+    data = test_app.post("/v1/admin/sync/strava").json()
+    assert data["status"] == "ok"
+    assert "records_synced" in data
+    assert "last_sync" in data
+
+
+def test_strava_sync_records_synced_is_int(test_app, test_db):
+    data = test_app.post("/v1/admin/sync/strava").json()
+    assert isinstance(data["records_synced"], int)
+
+
+def test_strava_sync_last_sync_is_iso_string(test_app, test_db):
+    from datetime import datetime
+    data = test_app.post("/v1/admin/sync/strava").json()
+    datetime.fromisoformat(data["last_sync"])
+
+
+def test_strava_sync_idempotent(test_app, test_db):
+    # Second call returns 0 new records (stub activity already stored)
+    test_app.post("/v1/admin/sync/strava")
+    data = test_app.post("/v1/admin/sync/strava").json()
+    assert data["status"] == "ok"
+    assert data["records_synced"] == 0

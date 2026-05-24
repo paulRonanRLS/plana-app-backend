@@ -248,9 +248,29 @@ function renderSyncStatus(status) {
     const label = key.charAt(0).toUpperCase() + key.slice(1);
     const cls   = s.status || 'never';
     const txt   = s.last_sync ? fmtSyncAge(s.last_sync) : 'never';
-    return `<span class="sync-item sync-${cls}">${label}: ${txt}</span>`;
+    return `<span class="sync-item sync-${cls}" id="sync-item-${key}">${label}: <span id="sync-ts-${key}">${txt}</span>` +
+      `<button class="sync-btn" id="sync-btn-${key}" onclick="triggerSync('${key}')" title="Sync now">↻</button></span>`;
   });
   el.innerHTML = `<div class="sync-footer">${parts.join('')}</div>`;
+}
+
+async function triggerSync(service) {
+  const btn = document.getElementById(`sync-btn-${service}`);
+  const tsEl = document.getElementById(`sync-ts-${service}`);
+  const item = document.getElementById(`sync-item-${service}`);
+  if (btn) { btn.disabled = true; btn.textContent = '…'; }
+  try {
+    const res = await fetch(`/v1/admin/sync/${service}`, { method: 'POST' });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    // Refresh the full footer so RAG dot and timestamp update together
+    apiFetch('/v1/health/integrations').then(renderSyncStatus).catch(() => {
+      // fallback: just update the timestamp text inline
+      if (tsEl) tsEl.textContent = 'just now';
+      if (btn)  { btn.disabled = false; btn.textContent = '↻'; }
+    });
+  } catch {
+    if (btn) { btn.disabled = false; btn.textContent = '↻'; }
+  }
 }
 
 // ── Goals view ────────────────────────────────────────────────────────────────
