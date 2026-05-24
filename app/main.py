@@ -109,6 +109,9 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+from app.routers import milestones as milestones_router  # noqa: E402
+app.include_router(milestones_router.router)
+
 settings = get_settings()
 app.add_middleware(
     CORSMiddleware,
