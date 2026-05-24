@@ -24,6 +24,7 @@ class Settings(BaseSettings):
     # Telegram Bot
     telegram_bot_token: str | None = None
     telegram_enabled: bool = False
+    telegram_chat_id: int | None = None  # user's chat ID for proactive outreach
 
     # Garmin Connect
     garmin_email: str | None = None

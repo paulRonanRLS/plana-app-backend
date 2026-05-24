@@ -1,7 +1,7 @@
 import enum
 from datetime import datetime, timezone
 
-from sqlalchemy import Column, Integer, String, DateTime, Date, Float, Enum, Text
+from sqlalchemy import Boolean, Column, Integer, String, DateTime, Date, Float, Enum, Text
 from sqlalchemy.orm import relationship
 
 from app.database import Base
@@ -17,6 +17,11 @@ class GoalState(str, enum.Enum):
     completed = "completed"
 
 
+class GoalType(str, enum.Enum):
+    perpetual = "perpetual"    # ongoing metric-based goal with a target range
+    achievement = "achievement"  # time-bounded goal with milestones
+
+
 class Goal(Base):
     __tablename__ = "goals"
 
@@ -24,9 +29,17 @@ class Goal(Base):
     title = Column(String(255), nullable=False)
     description = Column(Text, nullable=True)
     state = Column(Enum(GoalState), nullable=False, default=GoalState.draft)
+    goal_type = Column(Enum(GoalType), nullable=True)
     target_date = Column(Date, nullable=True)
     weekly_time_hours = Column(Float, nullable=True)
     weekly_tss = Column(Float, nullable=True)
+
+    # Perpetual goal drift detection — metric type and acceptable range
+    target_metric_type = Column(String(50), nullable=True)
+    target_min = Column(Float, nullable=True)
+    target_max = Column(Float, nullable=True)
+    # When True, drift detection is suppressed (user-acknowledged recovery period)
+    is_recovering = Column(Boolean, nullable=False, default=False)
 
     created_at = Column(
         DateTime(timezone=True),

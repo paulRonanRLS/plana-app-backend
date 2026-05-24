@@ -67,7 +67,7 @@ async def lifespan(app: FastAPI):
     from app.ingestion.scheduler import create_scheduler
     scheduler = create_scheduler()
     scheduler.start()
-    print("  Scheduler: garmin (06:00–09:00 ×1h + 10:00 backstop), strava (×30min)")
+    print("  Scheduler: garmin (06:00–09:00 ×1h + 10:00 backstop), strava (×30min), drift (08:30 daily), fade (Mon 09:00)")
 
     # ── Telegram bot ───────────────────────────────────────────────────────────
     bot_app = None
