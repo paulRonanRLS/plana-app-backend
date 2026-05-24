@@ -12,10 +12,11 @@ from sqlalchemy.orm import Session
 from app.bot.intent import classify_intent
 from app.core.claude_client import get_client
 from app.dependencies.db import get_db
+from fastapi import HTTPException
 from app.models.goal import Goal, GoalState, GoalType
-from app.models.metric_reading import MetricReading, MetricType
+from app.models.metric_reading import MetricReading, MetricSource, MetricType
 from app.models.milestone import Milestone, MilestoneState
-from app.services.goal import TERMINAL_STATES
+from app.services.goal import TERMINAL_STATES, activate_goal, create_goal
 from app.services.resource import get_resource_tension, get_three_week_view, get_willpower_pattern
 
 router = APIRouter(tags=["web"])
@@ -26,10 +27,38 @@ class CaptureRequest(BaseModel):
     text: str
 
 
+class GoalCreateRequest(BaseModel):
+    title: str
+    goal_type: Optional[str] = None   # "achievement" | "perpetual" | "habit"
+    description: Optional[str] = None
+    target_date: Optional[date] = None
+    weekly_target: Optional[int] = None   # habit goals only
+
+
 def _iso_week_bounds() -> tuple[date, date]:
     today = date.today()
     start = today - timedelta(days=today.weekday())
     return start, start + timedelta(days=6)
+
+
+def _week_datetime_bounds() -> tuple[datetime, datetime]:
+    start_date, _ = _iso_week_bounds()
+    start_dt = datetime.combine(start_date, datetime.min.time()).replace(tzinfo=timezone.utc)
+    return start_dt, start_dt + timedelta(days=7)
+
+
+def _habit_count_this_week(db: Session, goal_id: int) -> int:
+    start_dt, end_dt = _week_datetime_bounds()
+    return (
+        db.query(MetricReading)
+        .filter(
+            MetricReading.metric_type == MetricType.habit_log,
+            MetricReading.text_value == str(goal_id),
+            MetricReading.timestamp >= start_dt,
+            MetricReading.timestamp < end_dt,
+        )
+        .count()
+    )
 
 
 def _latest_metric_value(db: Session, metric_type_str: str) -> Optional[float]:
@@ -140,7 +169,7 @@ def get_now(db: Session = Depends(get_db)):
     for g in deadline_goals:
         pending = [
             m for m in g.milestones
-            if m.state in (MilestoneState.pending, MilestoneState.active)
+            if m.state in (MilestoneState.suggested, MilestoneState.pending, MilestoneState.active)
         ]
         pending.sort(key=lambda m: m.sequence)
         goals_with_deadlines.append({
@@ -186,10 +215,12 @@ def get_goals_summary(db: Session = Depends(get_db)):
     result = []
     for g in goals:
         milestones = sorted(
-            [m for m in g.milestones if m.state in (MilestoneState.pending, MilestoneState.active)],
+            [m for m in g.milestones if m.state in (
+                MilestoneState.suggested, MilestoneState.pending, MilestoneState.active
+            )],
             key=lambda m: m.sequence,
         )
-        result.append({
+        entry = {
             "id": g.id,
             "title": g.title,
             "description": g.description,
@@ -198,6 +229,7 @@ def get_goals_summary(db: Session = Depends(get_db)):
             "target_date": str(g.target_date) if g.target_date else None,
             "weekly_time_hours": g.weekly_time_hours,
             "weekly_tss": g.weekly_tss,
+            "weekly_target": g.weekly_target,
             "is_primacy": g.state == GoalState.primacy,
             "is_drifting": g.state == GoalState.drifting,
             "milestones": [
@@ -212,7 +244,16 @@ def get_goals_summary(db: Session = Depends(get_db)):
             ],
             "sacrifice_count": len(g.sacrifices),
             "created_at": g.created_at.isoformat() if g.created_at else None,
-        })
+        }
+        if g.goal_type == GoalType.habit:
+            entry["this_week_count"] = _habit_count_this_week(db, g.id)
+        if g.goal_type == GoalType.perpetual:
+            current = _latest_metric_value(db, g.target_metric_type) if g.target_metric_type else None
+            entry["current_value"] = current
+            entry["target_min"] = g.target_min
+            entry["target_max"] = g.target_max
+            entry["rag"] = _rag(current, g.target_min, g.target_max)
+        result.append(entry)
     return {"goals": result}
 
 
@@ -256,6 +297,63 @@ def get_reflection(db: Session = Depends(get_db)):
             "by_resource": willpower.by_resource,
         },
     }
+
+
+@router.post("/v1/goals", status_code=201)
+def create_new_goal(body: GoalCreateRequest, db: Session = Depends(get_db)):
+    """Create and immediately activate a new goal from the web UI."""
+    goal = create_goal(
+        db,
+        title=body.title,
+        description=body.description,
+        target_date=body.target_date,
+    )
+    goal = activate_goal(db, goal.id)
+
+    if body.goal_type:
+        try:
+            goal.goal_type = GoalType(body.goal_type)
+            goal.updated_at = datetime.now(timezone.utc)
+            db.commit()
+            db.refresh(goal)
+        except ValueError:
+            pass
+
+    if body.weekly_target is not None:
+        goal.weekly_target = body.weekly_target
+        goal.updated_at = datetime.now(timezone.utc)
+        db.commit()
+        db.refresh(goal)
+
+    logger.info(f"create_new_goal: id={goal.id} title={goal.title!r} type={goal.goal_type}")
+    return {
+        "id": goal.id,
+        "title": goal.title,
+        "state": goal.state.value,
+        "goal_type": goal.goal_type.value if goal.goal_type else None,
+    }
+
+
+@router.post("/v1/goals/{goal_id}/habit/log", status_code=201)
+def log_habit(goal_id: int, db: Session = Depends(get_db)):
+    """Record one habit completion for today."""
+    goal = db.query(Goal).filter(Goal.id == goal_id).first()
+    if not goal:
+        raise HTTPException(status_code=404, detail="Goal not found")
+    if goal.goal_type != GoalType.habit:
+        raise HTTPException(status_code=400, detail="Goal is not a habit goal")
+
+    reading = MetricReading(
+        timestamp=datetime.now(timezone.utc),
+        metric_type=MetricType.habit_log,
+        text_value=str(goal_id),
+        value=1.0,
+        source=MetricSource.manual,
+    )
+    db.add(reading)
+    db.commit()
+
+    return {"goal_id": goal_id, "this_week_count": _habit_count_this_week(db, goal_id)}
 
 
 @router.post("/v1/capture")

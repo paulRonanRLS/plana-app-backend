@@ -19,9 +19,10 @@ from app.schemas.milestone import (
     MilestoneSuggestResponse,
     SuggestedMilestone,
 )
+from app.models.milestone import MilestoneState
 from app.services.capability import get_capability_baseline, infer_goal_activity_type
 from app.services.goal import get_goal
-from app.services.milestone import create_milestones, list_milestones, update_milestone
+from app.services.milestone import create_milestones, delete_milestone, list_milestones, transition_suggested, update_milestone
 
 router = APIRouter(prefix="/v1", tags=["milestones"])
 logger = logging.getLogger(__name__)
@@ -64,6 +65,18 @@ def suggest_milestones(
         weekly_tss=baseline.weekly_tss,
     )
 
+    # Persist generated milestones as suggested state
+    items = [
+        {
+            "title": s.title,
+            "description": s.description,
+            "target_date": s.target_date,
+            "sequence": s.sequence,
+        }
+        for s in suggestions
+    ]
+    create_milestones(db, goal_id, items, state=MilestoneState.suggested)
+
     logger.info(f"suggest_milestones: goal={goal_id} type={activity_type} count={len(suggestions)}")
     return MilestoneSuggestResponse(
         goal_id=goal_id,
@@ -79,29 +92,49 @@ def agree_milestones(
     body: MilestoneAgreeRequest,
     db: Session = Depends(get_db),
 ):
-    """Save agreed milestones against the goal.
+    """Agree on milestones for a goal.
 
-    Accepts the list from /suggest (or a manually crafted list). Each milestone
-    is saved as a Pending Milestone. Existing milestones are not affected.
+    Two complementary actions in one call:
+    1. Transitions any existing suggested milestones on this goal to pending.
+    2. Creates any new milestones supplied in the body as pending.
+
+    Returns 422 only when there are no suggested milestones to transition
+    AND the body is empty — i.e. there is genuinely nothing to agree on.
     """
-    if not body.milestones:
+    goal = get_goal(db, goal_id)
+
+    from app.models.milestone import Milestone
+    existing_suggested = (
+        db.query(Milestone)
+        .filter(Milestone.goal_id == goal_id, Milestone.state == MilestoneState.suggested)
+        .count()
+    )
+
+    if not body.milestones and not existing_suggested:
         raise HTTPException(status_code=422, detail="milestones list must not be empty")
 
-    goal = get_goal(db, goal_id)
-    items = [
-        {
-            "title": m.title,
-            "description": m.description,
-            "target_date": m.target_date,
-            "sequence": m.sequence if m.sequence is not None else (i + 1),
-        }
-        for i, m in enumerate(body.milestones)
-    ]
-    saved = create_milestones(db, goal_id, items)
-    logger.info(f"agree_milestones: goal={goal_id} saved={len(saved)}")
+    transitioned = transition_suggested(db, goal_id)
+
+    created = []
+    if body.milestones:
+        items = [
+            {
+                "title": m.title,
+                "description": m.description,
+                "target_date": m.target_date,
+                "sequence": m.sequence if m.sequence is not None else (i + 1),
+            }
+            for i, m in enumerate(body.milestones)
+        ]
+        created = create_milestones(db, goal_id, items)
+
+    all_saved = transitioned + created
+    logger.info(
+        f"agree_milestones: goal={goal_id} transitioned={len(transitioned)} created={len(created)}"
+    )
     return MilestoneListResponse(
         goal_id=goal_id,
-        milestones=[MilestoneResponse.model_validate(m) for m in saved],
+        milestones=[MilestoneResponse.model_validate(m) for m in all_saved],
     )
 
 
@@ -114,6 +147,17 @@ def get_milestones(goal_id: int, db: Session = Depends(get_db)):
         goal_id=goal_id,
         milestones=[MilestoneResponse.model_validate(m) for m in milestones],
     )
+
+
+@router.delete("/goals/{goal_id}/milestones/{milestone_id}", status_code=204)
+def delete_milestone_endpoint(
+    goal_id: int,
+    milestone_id: int,
+    db: Session = Depends(get_db),
+):
+    """Delete a milestone."""
+    get_goal(db, goal_id)
+    delete_milestone(db, goal_id, milestone_id)
 
 
 @router.patch("/goals/{goal_id}/milestones/{milestone_id}", response_model=MilestoneResponse)

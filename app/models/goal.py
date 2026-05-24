@@ -20,6 +20,7 @@ class GoalState(str, enum.Enum):
 class GoalType(str, enum.Enum):
     perpetual = "perpetual"    # ongoing metric-based goal with a target range
     achievement = "achievement"  # time-bounded goal with milestones
+    habit = "habit"            # recurring behaviour tracked by weekly frequency
 
 
 class Goal(Base):
@@ -33,6 +34,7 @@ class Goal(Base):
     target_date = Column(Date, nullable=True)
     weekly_time_hours = Column(Float, nullable=True)
     weekly_tss = Column(Float, nullable=True)
+    weekly_target = Column(Integer, nullable=True)  # habit goals: target frequency per week
 
     # Perpetual goal drift detection — metric type and acceptable range
     target_metric_type = Column(String(50), nullable=True)

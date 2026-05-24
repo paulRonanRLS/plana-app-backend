@@ -20,6 +20,7 @@ class MetricType(str, enum.Enum):
     physical_state = "physical_state"     # text_value carries the description
     illness_log = "illness_log"           # text_value carries start/recovery note
     activity = "activity"                 # Strava/Garmin activity; details in notes JSON
+    habit_log = "habit_log"               # web/telegram habit completion; text_value = goal_id
 
 
 class MetricSource(str, enum.Enum):

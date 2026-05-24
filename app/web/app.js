@@ -49,6 +49,16 @@ function stateBadge(state) {
   return `<span class="badge ${stateBadgeClass(state)}">${stateLabel(state)}</span>`;
 }
 
+function typeBadge(goalType) {
+  const map = {
+    habit:       ['badge-habit',       'Habit'],
+    achievement: ['badge-achievement', 'Achievement'],
+    perpetual:   ['badge-perpetual',   'Perpetual'],
+  };
+  const [cls, label] = map[goalType] || ['badge-active', goalType || 'Goal'];
+  return `<span class="badge ${cls}">${label}</span>`;
+}
+
 // ── API ───────────────────────────────────────────────────────────────────────
 
 async function apiFetch(url) {
@@ -240,15 +250,39 @@ function renderGoalCards(goals) {
 
   container.innerHTML = goals.map(g => {
     const cardClass = g.state === 'primacy' ? 'primacy' : (g.state === 'drifting' ? 'drifting' : '');
+    const badges = (g.state === 'primacy' ? stateBadge('primacy') : '') + typeBadge(g.goal_type);
 
-    const milestonesHtml = g.milestones.length
-      ? g.milestones.map(m => `
-          <div class="milestone-row">
-            <span class="milestone-state ${m.state}"></span>
-            <span style="flex:1">${esc(m.title)}</span>
-            ${m.target_date ? `<span class="milestone-date">${fmtDate(m.target_date)}</span>` : ''}
-          </div>`).join('')
-      : '<div style="font-size:0.8rem;color:var(--text-secondary);padding:0.4rem 0">No milestones set.</div>';
+    let typeBody = '';
+    if (g.goal_type === 'habit') {
+      const count  = g.this_week_count || 0;
+      const target = g.weekly_target   || 1;
+      const pct    = Math.min(Math.round((count / target) * 100), 100);
+      typeBody = `
+        <div class="habit-progress">
+          <div class="habit-stat">
+            <span class="habit-count" id="habit-count-${g.id}">${count}</span>
+            <span class="habit-target">/ ${target}</span>
+            <span class="habit-unit">this week</span>
+          </div>
+          <div class="progress-track">
+            <div class="progress-fill${pct >= 100 ? '' : ''}"
+                 id="habit-bar-${g.id}"
+                 style="width:${pct}%; background:${pct >= 100 ? 'var(--rag-green)' : 'var(--teal)'}"></div>
+          </div>
+        </div>`;
+    } else if (g.goal_type === 'perpetual') {
+      const val   = g.current_value != null ? g.current_value : '—';
+      const range = (g.target_min != null || g.target_max != null)
+        ? `target ${g.target_min ?? '—'} – ${g.target_max ?? '—'}` : '';
+      typeBody = `
+        <div class="metric-row" style="border-bottom:none;padding:0.5rem 0 0">
+          <span class="rag-dot ${ragClass(g.rag)}"></span>
+          <span class="metric-value">${val}</span>
+          ${range ? `<span class="metric-range">${esc(range)}</span>` : ''}
+        </div>`;
+    } else {
+      typeBody = `<div id="ms-list-${g.id}">${renderMilestoneRows(g.id, g.milestones)}</div>`;
+    }
 
     const costParts = [];
     if (g.weekly_time_hours) costParts.push(`<strong>${g.weekly_time_hours}h</strong> time/wk`);
@@ -256,22 +290,27 @@ function renderGoalCards(goals) {
     const costHtml = costParts.length
       ? `<div class="weekly-cost">${costParts.join(' · ')}</div>` : '';
 
+    const habitLogBtn = g.goal_type === 'habit'
+      ? `<button class="btn btn-primary" id="habit-log-btn-${g.id}"
+           onclick="logHabit(${g.id}, this)">+1 Done</button>` : '';
+
     return `
       <div class="goal-card ${cardClass}">
         <div class="goal-card-header" onclick="toggleGoal(this)">
           <h3>${esc(g.title)}</h3>
-          ${stateBadge(g.state)}
+          ${badges}
           ${g.target_date ? `<span class="milestone-date">${fmtDate(g.target_date)}</span>` : ''}
           <span class="chevron">▼</span>
         </div>
         <div class="goal-card-body">
           ${g.description ? `<p class="goal-description">${esc(g.description)}</p>` : ''}
-          ${milestonesHtml}
+          ${typeBody}
           ${costHtml}
           ${g.sacrifice_count
             ? `<div class="sacrifice-note">${g.sacrifice_count} sacrifice${g.sacrifice_count !== 1 ? 's' : ''} logged</div>`
             : ''}
           <div class="goal-actions">
+            ${habitLogBtn}
             <button class="btn btn-primary"
               onclick="prefillCapture('sacrifice for ${esc(g.title).replace(/'/g,"\\'")}')">
               Log sacrifice
@@ -286,12 +325,264 @@ function renderGoalCards(goals) {
   }).join('');
 }
 
+async function logHabit(goalId, btn) {
+  btn.disabled = true;
+  try {
+    const res = await fetch(`/v1/goals/${goalId}/habit/log`, { method: 'POST' });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+    const countEl = document.getElementById(`habit-count-${goalId}`);
+    const barEl   = document.getElementById(`habit-bar-${goalId}`);
+    if (countEl) countEl.textContent = data.this_week_count;
+    if (barEl) {
+      const target = parseInt(barEl.closest('.goal-card-body')
+        ?.querySelector('.habit-target')?.textContent?.replace('/', '').trim() || '1', 10);
+      const pct = Math.min(Math.round((data.this_week_count / target) * 100), 100);
+      barEl.style.width = `${pct}%`;
+      barEl.style.background = pct >= 100 ? 'var(--rag-green)' : 'var(--teal)';
+    }
+  } catch {
+    // silently fail — user can reload
+  } finally {
+    btn.disabled = false;
+  }
+}
+
 function toggleGoal(header) {
   const body = header.nextElementSibling;
   const chevron = header.querySelector('.chevron');
   if (!body) return;
   const open = body.classList.toggle('open');
   if (chevron) chevron.style.transform = open ? 'rotate(180deg)' : '';
+}
+
+// ── Milestone inline actions ──────────────────────────────────────────────────
+
+let _openMsDropdown = null;
+
+function closeMsDropdown() {
+  if (_openMsDropdown) {
+    _openMsDropdown.classList.add('hidden');
+    _openMsDropdown = null;
+  }
+}
+
+function toggleMsMenu(event, btn) {
+  event.stopPropagation();
+  const dropdown = btn.nextElementSibling;
+  if (_openMsDropdown && _openMsDropdown !== dropdown) {
+    _openMsDropdown.classList.add('hidden');
+  }
+  const willOpen = dropdown.classList.contains('hidden');
+  dropdown.classList.toggle('hidden');
+  _openMsDropdown = willOpen ? dropdown : null;
+}
+
+function showMsPanel(mid, panelClass) {
+  closeMsDropdown();
+  const container = document.querySelector(`.ms-container[data-mid="${mid}"]`);
+  if (!container) return;
+  container.querySelectorAll('.ms-edit-panel,.ms-complete-panel,.ms-delete-panel')
+    .forEach(p => p.classList.add('hidden'));
+  const panel = container.querySelector('.' + panelClass);
+  panel?.classList.remove('hidden');
+  panel?.querySelector('input,textarea')?.focus();
+}
+
+function cancelMsPanel(mid) {
+  document.querySelector(`.ms-container[data-mid="${mid}"]`)
+    ?.querySelectorAll('.ms-edit-panel,.ms-complete-panel,.ms-delete-panel')
+    .forEach(p => p.classList.add('hidden'));
+}
+
+function renderMilestoneRow(goalId, m) {
+  const isReadOnly = m.state === 'achieved' || m.state === 'missed';
+
+  let dropdownItems = '';
+  if (m.state === 'suggested') {
+    dropdownItems = `
+      <button class="ms-dropdown-item" onclick="agreeMilestone(${m.id},${goalId})">Agree</button>
+      <button class="ms-dropdown-item" onclick="showMsPanel(${m.id},'ms-edit-panel')">Edit</button>
+      <button class="ms-dropdown-item ms-dropdown-danger" onclick="showMsPanel(${m.id},'ms-delete-panel')">Delete</button>`;
+  } else if (m.state === 'pending' || m.state === 'active') {
+    dropdownItems = `
+      <button class="ms-dropdown-item" onclick="showMsPanel(${m.id},'ms-edit-panel')">Edit</button>
+      <button class="ms-dropdown-item" onclick="showMsPanel(${m.id},'ms-complete-panel')">Mark complete</button>
+      <button class="ms-dropdown-item ms-dropdown-danger" onclick="showMsPanel(${m.id},'ms-delete-panel')">Delete</button>`;
+  }
+
+  const menuHtml = !isReadOnly ? `
+    <div class="ms-menu-wrap">
+      <button class="ms-menu-btn" onclick="toggleMsMenu(event,this)" title="Options">···</button>
+      <div class="ms-dropdown hidden">${dropdownItems}</div>
+    </div>` : '';
+
+  const panelsHtml = !isReadOnly ? `
+    <div class="ms-edit-panel hidden">
+      <div class="ms-panel-row">
+        <input type="text" class="ms-edit-title form-input" value="${esc(m.title)}" placeholder="Milestone name">
+        <input type="date" class="ms-edit-date form-input" value="${m.target_date || ''}">
+      </div>
+      <div class="ms-panel-actions">
+        <button class="btn btn-primary btn-sm" onclick="saveMsEdit(${m.id},${goalId})">Save</button>
+        <button class="btn btn-sm" onclick="cancelMsPanel(${m.id})">Cancel</button>
+        <span class="ms-feedback"></span>
+      </div>
+    </div>
+    <div class="ms-complete-panel hidden">
+      <textarea class="form-textarea ms-note" rows="2" placeholder="Optional completion note…"></textarea>
+      <div class="ms-panel-actions">
+        <button class="btn btn-primary btn-sm" onclick="confirmMsComplete(${m.id},${goalId})">Confirm complete</button>
+        <button class="btn btn-sm" onclick="cancelMsPanel(${m.id})">Cancel</button>
+        <span class="ms-feedback"></span>
+      </div>
+    </div>
+    <div class="ms-delete-panel hidden">
+      <span class="ms-confirm-text">Remove this milestone?</span>
+      <div class="ms-panel-actions">
+        <button class="btn btn-danger btn-sm" onclick="confirmMsDelete(${m.id},${goalId})">Yes, remove</button>
+        <button class="btn btn-sm" onclick="cancelMsPanel(${m.id})">Cancel</button>
+      </div>
+    </div>` : '';
+
+  return `
+    <div class="ms-container" data-mid="${m.id}" data-goal-id="${goalId}" data-state="${m.state}">
+      <div class="milestone-row">
+        <span class="milestone-state ${m.state}"></span>
+        <span class="ms-title" style="flex:1">${esc(m.title)}</span>
+        <span class="milestone-date ms-date">${m.target_date ? fmtDate(m.target_date) : ''}</span>
+        ${menuHtml}
+      </div>
+      ${panelsHtml}
+    </div>`;
+}
+
+function renderMilestoneRows(goalId, milestones) {
+  const rows = milestones.length
+    ? milestones.map(m => renderMilestoneRow(goalId, m)).join('')
+    : '<div style="font-size:0.8rem;color:var(--text-secondary);padding:0.4rem 0">No milestones set.</div>';
+  return rows + `<button class="ms-add-btn" onclick="addMilestoneRow(${goalId},this)">+ Add milestone</button>`;
+}
+
+function refreshMilestoneRow(goalId, milestone) {
+  const container = document.querySelector(`.ms-container[data-mid="${milestone.id}"]`);
+  if (container) container.outerHTML = renderMilestoneRow(goalId, milestone);
+}
+
+async function reloadMilestones(goalId) {
+  const el = document.getElementById(`ms-list-${goalId}`);
+  if (!el) return;
+  try {
+    const data = await apiFetch(`/v1/goals/${goalId}/milestones`);
+    el.innerHTML = renderMilestoneRows(goalId, data.milestones);
+  } catch {}
+}
+
+async function agreeMilestone(mid, goalId) {
+  closeMsDropdown();
+  const res = await fetch(`/v1/goals/${goalId}/milestones/${mid}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ state: 'pending' }),
+  });
+  if (!res.ok) return;
+  refreshMilestoneRow(goalId, await res.json());
+}
+
+async function saveMsEdit(mid, goalId) {
+  const container = document.querySelector(`.ms-container[data-mid="${mid}"]`);
+  if (!container) return;
+  const title   = container.querySelector('.ms-edit-title')?.value.trim();
+  const dateVal = container.querySelector('.ms-edit-date')?.value;
+  if (!title) return;
+
+  const body = { title };
+  if (dateVal) body.target_date = dateVal;
+
+  const res = await fetch(`/v1/goals/${goalId}/milestones/${mid}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) {
+    container.querySelector('.ms-edit-panel .ms-feedback').textContent = 'Save failed.';
+    return;
+  }
+  const data = await res.json();
+  container.querySelector('.ms-title').textContent = data.title;
+  container.querySelector('.ms-date').textContent = data.target_date ? fmtDate(data.target_date) : '';
+  cancelMsPanel(mid);
+}
+
+async function confirmMsComplete(mid, goalId) {
+  const container = document.querySelector(`.ms-container[data-mid="${mid}"]`);
+  if (!container) return;
+  const note = container.querySelector('.ms-note')?.value.trim();
+  const body = { state: 'achieved' };
+  if (note) body.description = note;
+
+  const res = await fetch(`/v1/goals/${goalId}/milestones/${mid}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) {
+    container.querySelector('.ms-complete-panel .ms-feedback').textContent = 'Failed.';
+    return;
+  }
+  refreshMilestoneRow(goalId, await res.json());
+}
+
+async function confirmMsDelete(mid, goalId) {
+  const container = document.querySelector(`.ms-container[data-mid="${mid}"]`);
+  if (!container) return;
+  const res = await fetch(`/v1/goals/${goalId}/milestones/${mid}`, { method: 'DELETE' });
+  if (!res.ok) return;
+  container.remove();
+}
+
+function addMilestoneRow(goalId, addBtn) {
+  if (addBtn.previousElementSibling?.classList.contains('ms-new-row')) return;
+  const newRow = document.createElement('div');
+  newRow.className = 'ms-container ms-new-row';
+  newRow.innerHTML = `
+    <div class="ms-edit-panel">
+      <div class="ms-panel-row">
+        <input type="text" class="ms-edit-title form-input" placeholder="Milestone name">
+        <input type="date" class="ms-edit-date form-input">
+      </div>
+      <div class="ms-panel-actions">
+        <button class="btn btn-primary btn-sm" onclick="saveNewMilestone(${goalId},this)">Add</button>
+        <button class="btn btn-sm" onclick="this.closest('.ms-new-row').remove()">Cancel</button>
+        <span class="ms-feedback"></span>
+      </div>
+    </div>`;
+  addBtn.parentNode.insertBefore(newRow, addBtn);
+  newRow.querySelector('.ms-edit-title').focus();
+}
+
+async function saveNewMilestone(goalId, btn) {
+  const container = btn.closest('.ms-new-row');
+  const title   = container.querySelector('.ms-edit-title').value.trim();
+  const dateVal = container.querySelector('.ms-edit-date').value;
+  if (!title) { container.querySelector('.ms-edit-title').focus(); return; }
+
+  const milestone = { title };
+  if (dateVal) milestone.target_date = dateVal;
+
+  btn.disabled = true;
+  const res = await fetch(`/v1/goals/${goalId}/milestones/agree`, {
+    method:  'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body:    JSON.stringify({ milestones: [milestone] }),
+  });
+  if (!res.ok) {
+    btn.disabled = false;
+    container.querySelector('.ms-feedback').textContent = 'Failed.';
+    return;
+  }
+  container.remove();
+  await reloadMilestones(goalId);
 }
 
 // ── Reflection view ───────────────────────────────────────────────────────────
@@ -355,6 +646,88 @@ function renderSacrificePattern(pattern) {
   setHTML('sacrifice-pattern', summary + `<div class="sacrifice-bars">${bars}</div>`);
 }
 
+// ── Add Goal form ─────────────────────────────────────────────────────────────
+
+function toggleAddGoalForm() {
+  const panel = document.getElementById('add-goal-panel');
+  const btn   = document.getElementById('add-goal-btn');
+  if (!panel) return;
+  const opening = panel.classList.contains('hidden');
+  panel.classList.toggle('hidden');
+  if (btn) btn.textContent = opening ? '✕ Cancel' : '+ Add Goal';
+  if (opening) {
+    document.getElementById('new-goal-title')?.focus();
+  } else {
+    document.getElementById('add-goal-form')?.reset();
+    document.getElementById('deadline-group')?.classList.add('hidden');
+    document.getElementById('habit-target-group')?.classList.add('hidden');
+  }
+}
+
+function handleGoalTypeChange() {
+  const type = document.getElementById('new-goal-type')?.value;
+  const deadlineGroup = document.getElementById('deadline-group');
+  const habitGroup    = document.getElementById('habit-target-group');
+  if (deadlineGroup) deadlineGroup.classList.toggle('hidden', type !== 'achievement');
+  if (habitGroup)    habitGroup.classList.toggle('hidden',    type !== 'habit');
+}
+
+function initAddGoalForm() {
+  const form = document.getElementById('add-goal-form');
+  if (!form) return;
+
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const submitBtn = document.getElementById('add-goal-submit');
+    const feedback  = document.getElementById('add-goal-feedback');
+
+    const title          = document.getElementById('new-goal-title').value.trim();
+    const goalType       = document.getElementById('new-goal-type').value;
+    const description    = document.getElementById('new-goal-description').value.trim() || null;
+    const deadlineEl     = document.getElementById('new-goal-deadline');
+    const targetDate     = (goalType === 'achievement' && deadlineEl?.value) ? deadlineEl.value : null;
+    const weeklyTargetEl = document.getElementById('new-goal-weekly-target');
+    const weeklyTarget   = (goalType === 'habit' && weeklyTargetEl?.value)
+      ? parseInt(weeklyTargetEl.value, 10) : null;
+
+    if (!title) return;
+
+    submitBtn.disabled   = true;
+    feedback.textContent = '';
+
+    try {
+      const res = await fetch('/v1/goals', {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({
+          title, goal_type: goalType, description,
+          target_date: targetDate, weekly_target: weeklyTarget,
+        }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.detail || `HTTP ${res.status}`);
+      }
+      // close and reset
+      form.reset();
+      document.getElementById('add-goal-panel').classList.add('hidden');
+      document.getElementById('add-goal-btn').textContent = '+ Add Goal';
+      document.getElementById('deadline-group')?.classList.add('hidden');
+      document.getElementById('habit-target-group')?.classList.add('hidden');
+      // reload list
+      await loadGoals();
+    } catch (err) {
+      feedback.textContent = err.message;
+    } finally {
+      submitBtn.disabled = false;
+    }
+  });
+}
+
 // ── Init ──────────────────────────────────────────────────────────────────────
 
-document.addEventListener('DOMContentLoaded', initCaptureBar);
+document.addEventListener('DOMContentLoaded', () => {
+  initCaptureBar();
+  initAddGoalForm();
+  document.addEventListener('click', closeMsDropdown);
+});

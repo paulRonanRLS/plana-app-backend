@@ -148,7 +148,8 @@ main {
   margin-top: 5px;
   flex-shrink: 0;
 }
-.milestone-state.pending  { background: transparent; border: 2px solid var(--text-secondary); }
+.milestone-state.suggested { background: transparent; border: 2px dashed #C0570A; }
+.milestone-state.pending  { background: transparent; border: 2px solid var(--teal); }
 .milestone-state.active   { background: var(--teal); }
 .milestone-state.achieved { background: var(--rag-green); }
 .milestone-state.missed   { background: var(--rag-red); }
@@ -204,6 +205,9 @@ main {
 .badge-active     { background: var(--light-blue);  color: var(--navy); }
 .badge-subordinate { background: var(--light-grey); color: var(--text-secondary); }
 .badge-draft      { background: var(--light-grey);  color: var(--text-secondary); }
+.badge-habit        { background: #C0570A;            color: #fff; }
+.badge-achievement  { background: var(--navy);        color: #fff; }
+.badge-perpetual    { background: #1A6B6B;            color: #fff; }
 
 /* ── Resource bars ───────────────────────────────────────────────────────── */
 
@@ -472,6 +476,136 @@ main {
 
 .sacrifice-bar-count { width: 20px; text-align: right; color: var(--text-secondary); }
 
+/* ── Milestone inline actions ────────────────────────────────────────────── */
+
+.ms-container {
+  border-bottom: 1px solid var(--border);
+}
+div.ms-container:last-of-type { border-bottom: none; }
+.ms-container .milestone-row  { border-bottom: none; }
+
+.ms-container[data-state="achieved"],
+.ms-container[data-state="missed"] { opacity: 0.55; }
+.ms-container[data-state="achieved"] .ms-title { text-decoration: line-through; }
+
+.ms-menu-wrap {
+  position: relative;
+  flex-shrink: 0;
+}
+
+.ms-menu-btn {
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: var(--text-secondary);
+  padding: 0 0.3rem;
+  font-size: 1rem;
+  letter-spacing: 0.1em;
+  line-height: 1;
+  font-family: inherit;
+  opacity: 0;
+  transition: opacity 0.15s;
+  flex-shrink: 0;
+}
+.ms-container:hover .ms-menu-btn,
+.ms-menu-btn:focus { opacity: 1; }
+
+.ms-dropdown {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 2px);
+  z-index: 50;
+  background: var(--white);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.12);
+  min-width: 150px;
+  overflow: hidden;
+}
+
+.ms-dropdown-item {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 0.5rem 0.875rem;
+  font-size: 0.8rem;
+  font-family: inherit;
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: var(--text-primary);
+  transition: background 0.1s;
+}
+.ms-dropdown-item:hover  { background: var(--light-grey); }
+.ms-dropdown-danger      { color: var(--rag-red); }
+
+.ms-edit-panel,
+.ms-complete-panel,
+.ms-delete-panel {
+  padding: 0.5rem 0.5rem 0.625rem 1.375rem;
+  background: var(--light-grey);
+  border-radius: 0 0 4px 4px;
+}
+
+.ms-panel-row {
+  display: flex;
+  gap: 0.5rem;
+}
+.ms-panel-row .form-input          { font-size: 0.8rem; padding: 0.35rem 0.5rem; }
+.ms-panel-row .form-input:first-child { flex: 1; }
+.ms-panel-row .form-input:last-child  { width: 130px; flex-shrink: 0; }
+
+.ms-panel-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-top: 0.4rem;
+}
+
+.ms-note {
+  width: 100%;
+  font-size: 0.8rem;
+  padding: 0.35rem 0.5rem;
+  margin-bottom: 0.4rem;
+}
+
+.ms-confirm-text {
+  font-size: 0.8rem;
+  color: var(--text-primary);
+  margin-bottom: 0.35rem;
+  display: block;
+}
+
+.ms-feedback {
+  font-size: 0.75rem;
+  color: var(--rag-red);
+}
+
+.btn-sm {
+  padding: 0.25rem 0.625rem;
+  font-size: 0.75rem;
+}
+
+.btn-danger {
+  background: var(--rag-red);
+  color: #fff;
+  border-color: var(--rag-red);
+}
+.btn-danger:hover { background: #a01e1e; border-color: #a01e1e; }
+
+.ms-add-btn {
+  display: block;
+  margin-top: 0.5rem;
+  background: none;
+  border: none;
+  padding: 0.2rem 0;
+  font-size: 0.8rem;
+  color: var(--teal);
+  cursor: pointer;
+  font-family: inherit;
+}
+.ms-add-btn:hover { color: #237070; }
+
 /* ── Capture bar ─────────────────────────────────────────────────────────── */
 
 .capture-bar {
@@ -536,7 +670,146 @@ main {
   padding: 0 0.125rem;
 }
 
+/* ── Add Goal form ───────────────────────────────────────────────────────── */
+
+.goals-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 0.875rem;
+}
+
+.goals-toolbar-title {
+  font-size: 0.8rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-secondary);
+}
+
+.add-goal-panel {
+  background: var(--white);
+  border: 1px solid var(--teal);
+  border-radius: 8px;
+  padding: 1.25rem;
+  margin-bottom: 1rem;
+}
+
+.form-group {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  margin-bottom: 0.875rem;
+}
+.form-group:last-child { margin-bottom: 0; }
+
+.form-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1rem;
+}
+
+.form-label {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.form-optional {
+  font-weight: 400;
+  font-style: italic;
+}
+
+.form-input,
+.form-select {
+  padding: 0.55rem 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  font-size: 0.875rem;
+  font-family: inherit;
+  background: var(--light-grey);
+  color: var(--text-primary);
+  outline: none;
+  transition: border-color 0.15s, background 0.15s;
+  width: 100%;
+}
+
+.form-input:focus,
+.form-select:focus {
+  border-color: var(--teal);
+  background: var(--white);
+  box-shadow: 0 0 0 2px rgba(42,127,127,0.13);
+}
+
+.form-textarea {
+  padding: 0.55rem 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  font-size: 0.875rem;
+  font-family: inherit;
+  background: var(--light-grey);
+  color: var(--text-primary);
+  outline: none;
+  resize: vertical;
+  width: 100%;
+  transition: border-color 0.15s, background 0.15s;
+}
+.form-textarea:focus {
+  border-color: var(--teal);
+  background: var(--white);
+  box-shadow: 0 0 0 2px rgba(42,127,127,0.13);
+}
+
+.form-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.625rem;
+  margin-top: 1rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--border);
+}
+
+.form-feedback {
+  font-size: 0.775rem;
+  color: var(--rag-red);
+  margin-left: 0.25rem;
+}
+
+/* ── Habit progress ──────────────────────────────────────────────────────── */
+
+.habit-progress {
+  margin: 0.75rem 0 0.5rem;
+}
+
+.habit-stat {
+  display: flex;
+  align-items: baseline;
+  gap: 0.25rem;
+  margin-bottom: 0.5rem;
+}
+
+.habit-count {
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: var(--navy);
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+}
+
+.habit-target {
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+}
+
+.habit-unit {
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+  margin-left: 0.15rem;
+}
+
 /* ── Utility ─────────────────────────────────────────────────────────────── */
+
+.hidden { display: none !important; }
 
 .empty-state {
   text-align: center;

@@ -49,18 +49,21 @@ def _stub_milestones(goal: Goal, today: Optional[date] = None) -> list[dict]:
             "description": f"Establish consistent baseline progress toward: {goal.title}.",
             "target_date": str(d1),
             "sequence": 1,
+            "state": "suggested",
         },
         {
             "title": "Build",
             "description": f"Increase volume and intensity in pursuit of: {goal.title}.",
             "target_date": str(d2),
             "sequence": 2,
+            "state": "suggested",
         },
         {
             "title": "Peak",
             "description": f"Final preparation and execution for: {goal.title}.",
             "target_date": str(d3),
             "sequence": 3,
+            "state": "suggested",
         },
     ]
 

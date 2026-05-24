@@ -33,7 +33,12 @@ def get_milestone(db: Session, goal_id: int, milestone_id: int) -> Milestone:
     return m
 
 
-def create_milestones(db: Session, goal_id: int, items: list[dict]) -> list[Milestone]:
+def create_milestones(
+    db: Session,
+    goal_id: int,
+    items: list[dict],
+    state: MilestoneState = MilestoneState.pending,
+) -> list[Milestone]:
     """Persist a list of milestone dicts against a goal.
 
     Each dict may include: title (required), description, target_date, sequence.
@@ -43,13 +48,19 @@ def create_milestones(db: Session, goal_id: int, items: list[dict]) -> list[Mile
     saved: list[Milestone] = []
     for i, item in enumerate(items):
         seq = item.get("sequence") if item.get("sequence") is not None else (i + 1)
+        raw_date = item.get("target_date")
+        if isinstance(raw_date, str):
+            try:
+                raw_date = date.fromisoformat(raw_date)
+            except ValueError:
+                raw_date = None
         m = Milestone(
             goal_id=goal_id,
             title=item["title"],
             description=item.get("description"),
-            target_date=item.get("target_date"),
+            target_date=raw_date,
             sequence=seq,
-            state=MilestoneState.pending,
+            state=state,
             created_at=now,
             updated_at=now,
         )
@@ -59,6 +70,30 @@ def create_milestones(db: Session, goal_id: int, items: list[dict]) -> list[Mile
     for m in saved:
         db.refresh(m)
     return saved
+
+
+def transition_suggested(db: Session, goal_id: int) -> list[Milestone]:
+    """Transition all suggested milestones on a goal to pending."""
+    now = _now()
+    milestones = (
+        db.query(Milestone)
+        .filter(Milestone.goal_id == goal_id, Milestone.state == MilestoneState.suggested)
+        .all()
+    )
+    for m in milestones:
+        m.state = MilestoneState.pending
+        m.updated_at = now
+    if milestones:
+        db.commit()
+        for m in milestones:
+            db.refresh(m)
+    return milestones
+
+
+def delete_milestone(db: Session, goal_id: int, milestone_id: int) -> None:
+    m = get_milestone(db, goal_id, milestone_id)
+    db.delete(m)
+    db.commit()
 
 
 def update_milestone(db: Session, goal_id: int, milestone_id: int, data: dict) -> Milestone:

@@ -195,3 +195,84 @@ def test_patch_404_for_unknown_milestone(test_app, test_db):
     goal = _make_active_goal(test_db)
     resp = test_app.patch(f"/v1/goals/{goal.id}/milestones/99999", json={"title": "X"})
     assert resp.status_code == 404
+
+
+# ── DELETE /v1/goals/{id}/milestones/{milestone_id} ───────────────────────────
+
+def test_delete_milestone_returns_204(test_app, test_db):
+    goal = _make_active_goal(test_db)
+    mid = _agree_one(test_app, test_db, goal.id)
+    resp = test_app.delete(f"/v1/goals/{goal.id}/milestones/{mid}")
+    assert resp.status_code == 204
+
+
+def test_delete_milestone_removes_from_list(test_app, test_db):
+    goal = _make_active_goal(test_db)
+    mid = _agree_one(test_app, test_db, goal.id)
+    test_app.delete(f"/v1/goals/{goal.id}/milestones/{mid}")
+    data = test_app.get(f"/v1/goals/{goal.id}/milestones").json()
+    assert all(m["id"] != mid for m in data["milestones"])
+
+
+def test_delete_milestone_404_unknown(test_app, test_db):
+    goal = _make_active_goal(test_db)
+    resp = test_app.delete(f"/v1/goals/{goal.id}/milestones/99999")
+    assert resp.status_code == 404
+
+
+def test_delete_milestone_404_wrong_goal(test_app, test_db):
+    goal = _make_active_goal(test_db)
+    mid = _agree_one(test_app, test_db, goal.id)
+    resp = test_app.delete(f"/v1/goals/99999/milestones/{mid}")
+    assert resp.status_code == 404
+
+
+# ── suggested → pending transition ────────────────────────────────────────────
+
+def test_suggest_saves_milestones_as_suggested(test_app, test_db):
+    goal = _make_active_goal(test_db)
+    test_app.post(f"/v1/goals/{goal.id}/milestones/suggest", json={})
+    data = test_app.get(f"/v1/goals/{goal.id}/milestones").json()
+    assert all(m["state"] == "suggested" for m in data["milestones"])
+
+
+def test_agree_transitions_suggested_to_pending(test_app, test_db):
+    goal = _make_active_goal(test_db)
+    test_app.post(f"/v1/goals/{goal.id}/milestones/suggest", json={})
+    data = test_app.post(
+        f"/v1/goals/{goal.id}/milestones/agree", json={"milestones": []}
+    ).json()
+    assert all(m["state"] == "pending" for m in data["milestones"])
+
+
+def test_agree_transitions_all_suggested_on_goal(test_app, test_db):
+    goal = _make_active_goal(test_db)
+    test_app.post(f"/v1/goals/{goal.id}/milestones/suggest", json={})
+    before = test_app.get(f"/v1/goals/{goal.id}/milestones").json()
+    suggested_count = sum(1 for m in before["milestones"] if m["state"] == "suggested")
+    assert suggested_count == 3
+
+    test_app.post(f"/v1/goals/{goal.id}/milestones/agree", json={"milestones": []})
+    after = test_app.get(f"/v1/goals/{goal.id}/milestones").json()
+    assert all(m["state"] == "pending" for m in after["milestones"])
+    assert len(after["milestones"]) == 3
+
+
+def test_agree_empty_body_with_no_suggested_returns_422(test_app, test_db):
+    goal = _make_active_goal(test_db)
+    resp = test_app.post(f"/v1/goals/{goal.id}/milestones/agree", json={"milestones": []})
+    assert resp.status_code == 422
+
+
+def test_agree_body_milestones_plus_existing_suggested(test_app, test_db):
+    goal = _make_active_goal(test_db)
+    test_app.post(f"/v1/goals/{goal.id}/milestones/suggest", json={})
+    resp = test_app.post(
+        f"/v1/goals/{goal.id}/milestones/agree",
+        json={"milestones": [{"title": "Extra step"}]},
+    )
+    assert resp.status_code == 200
+    data = resp.json()
+    # 3 transitioned from suggested + 1 created = 4 total
+    assert len(data["milestones"]) == 4
+    assert all(m["state"] == "pending" for m in data["milestones"])
