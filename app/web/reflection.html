@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>planA — Reflection</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+<nav class="navbar">
+  <span class="brand">planA</span>
+  <a href="index.html">Now</a>
+  <a href="goals.html">Goals</a>
+  <a href="#" class="disabled">Tension Map</a>
+  <a href="reflection.html" class="active">Reflection</a>
+</nav>
+
+<main>
+  <div class="section">
+    <div class="section-header"><h2>Sacrifice Pattern — last 28 days</h2></div>
+    <div class="section-body" id="sacrifice-pattern">
+      <div class="loading">Loading…</div>
+    </div>
+  </div>
+
+  <div class="section">
+    <div class="section-header"><h2>Completed Goals</h2></div>
+    <div class="section-body" id="completed-goals">
+      <div class="loading">Loading…</div>
+    </div>
+  </div>
+
+  <div class="section">
+    <div class="section-header"><h2>Released Goals</h2></div>
+    <div class="section-body" id="released-goals">
+      <div class="loading">Loading…</div>
+    </div>
+  </div>
+</main>
+
+<div class="capture-bar">
+  <form class="capture-form" id="capture-form">
+    <input type="text" class="capture-input" id="capture-input"
+           placeholder="What's happening…" autocomplete="off">
+    <button type="submit" class="capture-btn" id="capture-btn">Send</button>
+  </form>
+  <div class="capture-feedback" id="capture-feedback"></div>
+</div>
+
+<script src="app.js"></script>
+<script>loadReflection();</script>
+</body>
+</html>

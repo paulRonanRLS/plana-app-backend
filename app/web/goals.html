@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>planA — Goals</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+<nav class="navbar">
+  <span class="brand">planA</span>
+  <a href="index.html">Now</a>
+  <a href="goals.html" class="active">Goals</a>
+  <a href="#" class="disabled">Tension Map</a>
+  <a href="reflection.html">Reflection</a>
+</nav>
+
+<main>
+  <div id="goals-list">
+    <div class="loading">Loading…</div>
+  </div>
+</main>
+
+<div class="capture-bar">
+  <form class="capture-form" id="capture-form">
+    <input type="text" class="capture-input" id="capture-input"
+           placeholder="What's happening…" autocomplete="off">
+    <button type="submit" class="capture-btn" id="capture-btn">Send</button>
+  </form>
+  <div class="capture-feedback" id="capture-feedback"></div>
+</div>
+
+<script src="app.js"></script>
+<script>loadGoals();</script>
+</body>
+</html>

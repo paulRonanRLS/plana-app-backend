@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>planA — Now</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+<nav class="navbar">
+  <span class="brand">planA</span>
+  <a href="index.html" class="active">Now</a>
+  <a href="goals.html">Goals</a>
+  <a href="#" class="disabled">Tension Map</a>
+  <a href="reflection.html">Reflection</a>
+</nav>
+
+<main>
+  <div class="section">
+    <div class="section-header"><h2>State of the Union</h2></div>
+    <div class="section-body" id="perpetual-goals">
+      <div class="loading">Loading…</div>
+    </div>
+  </div>
+
+  <div class="section">
+    <div class="section-header"><h2>This Week</h2></div>
+    <div class="section-body" id="this-week-milestones">
+      <div class="loading">Loading…</div>
+    </div>
+  </div>
+
+  <div class="section">
+    <div class="section-header"><h2>Goals with Deadlines</h2></div>
+    <div class="section-body" id="deadline-goals">
+      <div class="loading">Loading…</div>
+    </div>
+  </div>
+
+  <div class="section">
+    <div class="section-header"><h2>Resources</h2></div>
+    <div class="section-body" id="resources">
+      <div class="loading">Loading…</div>
+    </div>
+  </div>
+</main>
+
+<div class="capture-bar">
+  <form class="capture-form" id="capture-form">
+    <input type="text" class="capture-input" id="capture-input"
+           placeholder="What's happening…" autocomplete="off">
+    <button type="submit" class="capture-btn" id="capture-btn">Send</button>
+  </form>
+  <div class="capture-feedback" id="capture-feedback"></div>
+</div>
+
+<script src="app.js"></script>
+<script>loadNow();</script>
+</body>
+</html>

@@ -110,7 +110,9 @@ app = FastAPI(
 )
 
 from app.routers import milestones as milestones_router  # noqa: E402
+from app.routers import web as web_router                # noqa: E402
 app.include_router(milestones_router.router)
+app.include_router(web_router.router)
 
 settings = get_settings()
 app.add_middleware(
