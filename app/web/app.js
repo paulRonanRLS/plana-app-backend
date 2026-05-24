@@ -30,8 +30,8 @@ function ragClass(rag) {
 }
 
 function progressClass(pct) {
-  if (pct >= 100) return 'critical';
-  if (pct >= 80)  return 'warning';
+  if (pct > 95)  return 'critical';
+  if (pct >= 80) return 'warning';
   return '';
 }
 
@@ -116,6 +116,7 @@ async function loadNow() {
     renderThisWeekMilestones(d.this_week_milestones || []);
     renderGoalsWithDeadlines(d.goals_with_deadlines || []);
     renderResources(d.resources || {});
+    apiFetch('/v1/health/integrations').then(renderSyncStatus).catch(() => {});
   } catch (err) {
     document.querySelector('main').innerHTML =
       `<div class="error-state">Failed to load: ${esc(err.message)}</div>`;
@@ -127,15 +128,19 @@ function renderPerpetualGoals(goals) {
     setHTML('perpetual-goals', '<div class="empty-state">No perpetual goals active.</div>');
     return;
   }
+  const trendGlyph = { up: '↑', down: '↓', flat: '→' };
   setHTML('perpetual-goals', goals.map(g => {
     const val   = g.current_value != null ? g.current_value : '—';
     const range = (g.target_min != null || g.target_max != null)
       ? `target ${g.target_min ?? '—'} – ${g.target_max ?? '—'}` : '';
+    const trendHtml = g.trend
+      ? `<span class="trend-arrow trend-${g.trend}">${trendGlyph[g.trend] || ''}</span>`
+      : '';
     return `
       <div class="metric-row">
         <span class="rag-dot ${ragClass(g.rag)}"></span>
         <span class="metric-name">${esc(g.title)}</span>
-        <span class="metric-value">${val}</span>
+        <span class="metric-value">${val}${trendHtml}</span>
         ${range ? `<span class="metric-range">${esc(range)}</span>` : ''}
       </div>`;
   }).join(''));
@@ -228,12 +233,38 @@ function renderResources(res) {
   setHTML('resources', barsHtml + threeWeekHtml);
 }
 
+function fmtSyncAge(iso) {
+  const diffMs = Date.now() - new Date(iso).getTime();
+  const diffH  = diffMs / 3600000;
+  if (diffH < 1) return `${Math.round(diffH * 60)}m ago`;
+  return `${Math.round(diffH)}h ago`;
+}
+
+function renderSyncStatus(status) {
+  const el = document.getElementById('sync-status');
+  if (!el) return;
+  const parts = ['garmin', 'strava'].map(key => {
+    const s = (status && status[key]) || {};
+    const label = key.charAt(0).toUpperCase() + key.slice(1);
+    const cls   = s.status || 'never';
+    const txt   = s.last_sync ? fmtSyncAge(s.last_sync) : 'never';
+    return `<span class="sync-item sync-${cls}">${label}: ${txt}</span>`;
+  });
+  el.innerHTML = `<div class="sync-footer">${parts.join('')}</div>`;
+}
+
 // ── Goals view ────────────────────────────────────────────────────────────────
 
 async function loadGoals() {
   try {
     const d = await apiFetch('/v1/goals/summary');
     renderGoalCards(d.goals || []);
+    // Summary filters milestones to active/pending/suggested — reload each achievement
+    // goal via the dedicated endpoint to pick up achieved/missed states too.
+    const achievementIds = (d.goals || [])
+      .filter(g => g.goal_type === 'achievement' || !g.goal_type)
+      .map(g => g.id);
+    achievementIds.forEach(id => reloadMilestones(id));
   } catch (err) {
     document.querySelector('main').innerHTML =
       `<div class="error-state">Failed to load: ${esc(err.message)}</div>`;
@@ -445,6 +476,10 @@ function renderMilestoneRow(goalId, m) {
       </div>
     </div>` : '';
 
+  const noteHtml = (m.state === 'achieved' && m.description)
+    ? `<div style="font-size:0.75rem;font-style:italic;color:var(--text-secondary);padding-left:1.375rem;padding-bottom:0.25rem">${esc(m.description)}</div>`
+    : '';
+
   return `
     <div class="ms-container" data-mid="${m.id}" data-goal-id="${goalId}" data-state="${m.state}">
       <div class="milestone-row">
@@ -453,13 +488,18 @@ function renderMilestoneRow(goalId, m) {
         <span class="milestone-date ms-date">${m.target_date ? fmtDate(m.target_date) : ''}</span>
         ${menuHtml}
       </div>
+      ${noteHtml}
       ${panelsHtml}
     </div>`;
 }
 
 function renderMilestoneRows(goalId, milestones) {
-  const rows = milestones.length
-    ? milestones.map(m => renderMilestoneRow(goalId, m)).join('')
+  const terminal = ['achieved', 'missed'];
+  const active   = milestones.filter(m => !terminal.includes(m.state));
+  const done     = milestones.filter(m =>  terminal.includes(m.state));
+  const ordered  = [...active, ...done];
+  const rows = ordered.length
+    ? ordered.map(m => renderMilestoneRow(goalId, m)).join('')
     : '<div style="font-size:0.8rem;color:var(--text-secondary);padding:0.4rem 0">No milestones set.</div>';
   return rows + `<button class="ms-add-btn" onclick="addMilestoneRow(${goalId},this)">+ Add milestone</button>`;
 }

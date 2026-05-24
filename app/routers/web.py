@@ -62,17 +62,35 @@ def _habit_count_this_week(db: Session, goal_id: int) -> int:
 
 
 def _latest_metric_value(db: Session, metric_type_str: str) -> Optional[float]:
+    latest, _ = _latest_two_metric_values(db, metric_type_str)
+    return latest
+
+
+def _latest_two_metric_values(db: Session, metric_type_str: str) -> tuple[Optional[float], Optional[float]]:
     try:
         mt = MetricType(metric_type_str)
     except ValueError:
-        return None
-    r = (
+        return None, None
+    rows = (
         db.query(MetricReading)
         .filter(MetricReading.metric_type == mt, MetricReading.value.isnot(None))
         .order_by(MetricReading.timestamp.desc())
-        .first()
+        .limit(2)
+        .all()
     )
-    return r.value if r else None
+    latest   = rows[0].value if rows else None
+    previous = rows[1].value if len(rows) > 1 else None
+    return latest, previous
+
+
+def _trend(current: Optional[float], previous: Optional[float]) -> Optional[str]:
+    if current is None or previous is None:
+        return None
+    if current > previous:
+        return "up"
+    if current < previous:
+        return "down"
+    return "flat"
 
 
 def _rag(value: Optional[float], target_min: Optional[float], target_max: Optional[float]) -> str:
@@ -120,7 +138,10 @@ def get_now(db: Session = Depends(get_db)):
     )
     perpetual_goals = []
     for g in perpetual:
-        current = _latest_metric_value(db, g.target_metric_type) if g.target_metric_type else None
+        if g.target_metric_type:
+            current, previous = _latest_two_metric_values(db, g.target_metric_type)
+        else:
+            current, previous = None, None
         perpetual_goals.append({
             "id": g.id,
             "title": g.title,
@@ -130,6 +151,7 @@ def get_now(db: Session = Depends(get_db)):
             "target_min": g.target_min,
             "target_max": g.target_max,
             "rag": _rag(current, g.target_min, g.target_max),
+            "trend": _trend(current, previous),
         })
 
     # Milestones due this week or currently active
@@ -248,11 +270,15 @@ def get_goals_summary(db: Session = Depends(get_db)):
         if g.goal_type == GoalType.habit:
             entry["this_week_count"] = _habit_count_this_week(db, g.id)
         if g.goal_type == GoalType.perpetual:
-            current = _latest_metric_value(db, g.target_metric_type) if g.target_metric_type else None
+            if g.target_metric_type:
+                current, previous = _latest_two_metric_values(db, g.target_metric_type)
+            else:
+                current, previous = None, None
             entry["current_value"] = current
             entry["target_min"] = g.target_min
             entry["target_max"] = g.target_max
             entry["rag"] = _rag(current, g.target_min, g.target_max)
+            entry["trend"] = _trend(current, previous)
         result.append(entry)
     return {"goals": result}
 
@@ -354,6 +380,40 @@ def log_habit(goal_id: int, db: Session = Depends(get_db)):
     db.commit()
 
     return {"goal_id": goal_id, "this_week_count": _habit_count_this_week(db, goal_id)}
+
+
+@router.get("/v1/health/integrations")
+def get_integrations_status():
+    """Return last sync time and RAG status for Garmin and Strava.
+
+    Reads Redis keys written by the ingestion jobs. Returns 'never' when
+    Redis is disabled or no sync has run yet.
+    """
+    from app.core.redis_client import cache_get
+
+    def _status(key: str) -> dict:
+        raw = cache_get(key)
+        if not raw:
+            return {"last_sync": None, "status": "never"}
+        try:
+            last_sync = datetime.fromisoformat(raw)
+        except ValueError:
+            return {"last_sync": raw, "status": "never"}
+        if last_sync.tzinfo is None:
+            last_sync = last_sync.replace(tzinfo=timezone.utc)
+        age_hours = (datetime.now(timezone.utc) - last_sync).total_seconds() / 3600
+        if age_hours <= 6:
+            status = "green"
+        elif age_hours <= 24:
+            status = "amber"
+        else:
+            status = "red"
+        return {"last_sync": last_sync.isoformat(), "status": status}
+
+    return {
+        "garmin": _status("sync:garmin:last_success"),
+        "strava": _status("sync:strava:last_success"),
+    }
 
 
 @router.post("/v1/capture")
