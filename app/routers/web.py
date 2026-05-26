@@ -416,6 +416,63 @@ def get_integrations_status():
     }
 
 
+@router.get("/v1/connectors/status")
+def get_connectors_status(db: Session = Depends(get_db)):
+    """Return full connector status: sync health, record counts, and attempt log."""
+    from app.config import get_settings
+    from app.core.redis_client import cache_get, get_sync_log
+
+    settings = get_settings()
+
+    def _sync_status(key: str) -> dict:
+        raw = cache_get(key)
+        if not raw:
+            return {"last_sync": None, "status": "never"}
+        try:
+            last_sync = datetime.fromisoformat(raw)
+        except ValueError:
+            return {"last_sync": raw, "status": "never"}
+        if last_sync.tzinfo is None:
+            last_sync = last_sync.replace(tzinfo=timezone.utc)
+        age_hours = (datetime.now(timezone.utc) - last_sync).total_seconds() / 3600
+        if age_hours <= 6:
+            status = "green"
+        elif age_hours <= 24:
+            status = "amber"
+        else:
+            status = "red"
+        return {"last_sync": last_sync.isoformat(), "status": status}
+
+    def _record_count(source: MetricSource) -> int:
+        return db.query(MetricReading).filter(MetricReading.source == source).count()
+
+    garmin_sync = _sync_status("sync:garmin:last_success")
+    strava_sync = _sync_status("sync:strava:last_success")
+
+    return {
+        "garmin": {
+            "enabled": settings.garmin_enabled,
+            "last_sync": garmin_sync["last_sync"],
+            "status": garmin_sync["status"],
+            "record_count": _record_count(MetricSource.garmin),
+            "log": get_sync_log("garmin"),
+        },
+        "strava": {
+            "enabled": settings.strava_enabled,
+            "last_sync": strava_sync["last_sync"],
+            "status": strava_sync["status"],
+            "record_count": _record_count(MetricSource.strava),
+            "log": get_sync_log("strava"),
+        },
+        "record_counts": {
+            "garmin": _record_count(MetricSource.garmin),
+            "strava": _record_count(MetricSource.strava),
+            "manual": _record_count(MetricSource.manual),
+            "telegram": _record_count(MetricSource.telegram),
+        },
+    }
+
+
 @router.post("/v1/admin/sync/garmin")
 def trigger_garmin_sync(db: Session = Depends(get_db)):
     """Manually trigger a Garmin sync. Calls the same function as the scheduled job."""

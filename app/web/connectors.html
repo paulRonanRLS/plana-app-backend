@@ -1,0 +1,298 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>planA — Connectors</title>
+  <link rel="stylesheet" href="styles.css">
+  <style>
+    .connector-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+      gap: 1.5rem;
+      margin-bottom: 2rem;
+    }
+    .connector-card {
+      background: var(--surface, #1a1a1a);
+      border: 1px solid var(--border, #333);
+      border-radius: 8px;
+      padding: 1.25rem 1.5rem;
+    }
+    .connector-card-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 0.75rem;
+    }
+    .connector-name {
+      font-size: 1.1rem;
+      font-weight: 600;
+      letter-spacing: 0.02em;
+    }
+    .badge {
+      display: inline-block;
+      padding: 2px 10px;
+      border-radius: 20px;
+      font-size: 0.75rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+    .badge-green  { background: #1a3a1a; color: #4caf50; border: 1px solid #4caf50; }
+    .badge-amber  { background: #3a2e00; color: #ffc107; border: 1px solid #ffc107; }
+    .badge-red    { background: #3a0a0a; color: #f44336; border: 1px solid #f44336; }
+    .badge-never  { background: #222;    color: #888;    border: 1px solid #555; }
+    .badge-disabled { background: #1a1a1a; color: #666; border: 1px solid #444; }
+    .connector-meta {
+      font-size: 0.82rem;
+      color: #888;
+      margin-bottom: 1rem;
+    }
+    .connector-meta span { margin-right: 1.2rem; }
+    .connector-actions {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      margin-bottom: 1rem;
+    }
+    .sync-btn {
+      padding: 6px 16px;
+      border-radius: 4px;
+      border: 1px solid #555;
+      background: #222;
+      color: #ccc;
+      cursor: pointer;
+      font-size: 0.85rem;
+      transition: background 0.15s;
+    }
+    .sync-btn:hover:not(:disabled) { background: #333; color: #fff; }
+    .sync-btn:disabled { opacity: 0.45; cursor: not-allowed; }
+    .cooldown-msg { font-size: 0.78rem; color: #666; }
+
+    .log-section { margin-top: 0.5rem; }
+    .log-section summary {
+      cursor: pointer;
+      font-size: 0.82rem;
+      color: #888;
+      user-select: none;
+      margin-bottom: 0.4rem;
+    }
+    .attempt-log {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.78rem;
+      margin-top: 0.5rem;
+    }
+    .attempt-log th {
+      text-align: left;
+      color: #666;
+      font-weight: 500;
+      padding: 3px 8px 3px 0;
+      border-bottom: 1px solid #333;
+    }
+    .attempt-log td {
+      padding: 4px 8px 4px 0;
+      color: #aaa;
+      vertical-align: top;
+    }
+    .attempt-log tr:last-child td { border-bottom: none; }
+    .log-ok      { color: #4caf50; }
+    .log-error   { color: #f44336; }
+    .log-skipped { color: #888; }
+
+    .record-counts {
+      display: flex;
+      gap: 1.5rem;
+      flex-wrap: wrap;
+      font-size: 0.88rem;
+      color: #aaa;
+    }
+    .record-counts .count-item strong {
+      display: block;
+      font-size: 1.4rem;
+      font-weight: 700;
+      color: #ddd;
+    }
+    .count-label { font-size: 0.76rem; color: #666; text-transform: uppercase; letter-spacing: 0.05em; }
+  </style>
+</head>
+<body>
+
+<nav class="navbar">
+  <span class="brand">planA</span>
+  <a href="index.html">Now</a>
+  <a href="goals.html">Goals</a>
+  <a href="#" class="disabled">Tension Map</a>
+  <a href="reflection.html">Reflection</a>
+  <a href="connectors.html" class="active">Connectors</a>
+</nav>
+
+<main>
+  <div class="section">
+    <div class="section-header"><h2>Data Connectors</h2></div>
+    <div class="section-body">
+      <div class="connector-grid" id="connector-grid">
+        <div class="loading">Loading…</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="section">
+    <div class="section-header"><h2>Record Counts</h2></div>
+    <div class="section-body">
+      <div class="record-counts" id="record-counts">
+        <div class="loading">Loading…</div>
+      </div>
+    </div>
+  </div>
+</main>
+
+<script>
+const COOLDOWN_MS = 30_000;
+const syncCooldowns = {};
+
+function statusBadge(status) {
+  if (status === 'green')  return '<span class="badge badge-green">OK</span>';
+  if (status === 'amber')  return '<span class="badge badge-amber">Stale</span>';
+  if (status === 'red')    return '<span class="badge badge-red">Old</span>';
+  return '<span class="badge badge-never">Never synced</span>';
+}
+
+function formatTs(iso) {
+  if (!iso) return '—';
+  const d = new Date(iso);
+  return d.toLocaleString(undefined, { dateStyle: 'short', timeStyle: 'short' });
+}
+
+function logStatusClass(status) {
+  if (status === 'ok')      return 'log-ok';
+  if (status === 'error')   return 'log-error';
+  return 'log-skipped';
+}
+
+function renderLog(entries) {
+  if (!entries || entries.length === 0) {
+    return '<em style="color:#555;font-size:0.78rem">No attempts recorded</em>';
+  }
+  const rows = entries.map(e => {
+    const cls = logStatusClass(e.status);
+    return `<tr>
+      <td>${formatTs(e.ts)}</td>
+      <td class="${cls}">${e.status}</td>
+      <td>${e.count ?? '—'}</td>
+      <td>${e.msg || ''}</td>
+    </tr>`;
+  }).join('');
+  return `<table class="attempt-log">
+    <thead><tr>
+      <th>Time</th><th>Status</th><th>Count</th><th>Message</th>
+    </tr></thead>
+    <tbody>${rows}</tbody>
+  </table>`;
+}
+
+function startCooldown(source, btn, msgEl) {
+  syncCooldowns[source] = Date.now() + COOLDOWN_MS;
+  btn.disabled = true;
+  const interval = setInterval(() => {
+    const remaining = Math.ceil((syncCooldowns[source] - Date.now()) / 1000);
+    if (remaining <= 0) {
+      clearInterval(interval);
+      btn.disabled = false;
+      msgEl.textContent = '';
+    } else {
+      msgEl.textContent = `Next sync in ${remaining}s`;
+    }
+  }, 500);
+}
+
+function renderConnector(source, data) {
+  const name = source.charAt(0).toUpperCase() + source.slice(1);
+  const enabledBadge = data.enabled
+    ? '<span class="badge badge-green">Enabled</span>'
+    : '<span class="badge badge-disabled">Disabled</span>';
+  const lastSyncStr = formatTs(data.last_sync);
+
+  const card = document.createElement('div');
+  card.className = 'connector-card';
+  card.id = `card-${source}`;
+  card.innerHTML = `
+    <div class="connector-card-header">
+      <span class="connector-name">${name}</span>
+      <div style="display:flex;gap:0.5rem;align-items:center">
+        ${enabledBadge}
+        ${statusBadge(data.status)}
+      </div>
+    </div>
+    <div class="connector-meta">
+      <span>Last sync: ${lastSyncStr}</span>
+      <span>${data.record_count} records</span>
+    </div>
+    <div class="connector-actions">
+      <button class="sync-btn" id="sync-btn-${source}">Sync now</button>
+      <span class="cooldown-msg" id="cooldown-${source}"></span>
+    </div>
+    <details class="log-section">
+      <summary>Attempt log (${(data.log || []).length} entries)</summary>
+      ${renderLog(data.log)}
+    </details>
+  `;
+
+  const btn = card.querySelector(`#sync-btn-${source}`);
+  const msgEl = card.querySelector(`#cooldown-${source}`);
+
+  if (syncCooldowns[source] && Date.now() < syncCooldowns[source]) {
+    btn.disabled = true;
+  }
+
+  btn.addEventListener('click', async () => {
+    btn.disabled = true;
+    msgEl.textContent = 'Syncing…';
+    try {
+      const resp = await fetch(`/v1/admin/sync/${source}`, { method: 'POST' });
+      const json = await resp.json();
+      if (resp.ok) {
+        msgEl.textContent = `Synced — ${json.records_synced} records`;
+        setTimeout(() => loadStatus(), 800);
+      } else {
+        msgEl.textContent = `Error: ${json.detail || 'sync failed'}`;
+      }
+    } catch (err) {
+      msgEl.textContent = `Error: ${err.message}`;
+    }
+    startCooldown(source, btn, msgEl);
+  });
+
+  return card;
+}
+
+async function loadStatus() {
+  try {
+    const resp = await fetch('/v1/connectors/status');
+    const data = await resp.json();
+
+    const grid = document.getElementById('connector-grid');
+    grid.innerHTML = '';
+    for (const source of ['garmin', 'strava']) {
+      grid.appendChild(renderConnector(source, data[source]));
+    }
+
+    const counts = data.record_counts;
+    const countsEl = document.getElementById('record-counts');
+    countsEl.innerHTML = Object.entries(counts).map(([src, n]) => `
+      <div class="count-item">
+        <strong>${n}</strong>
+        <span class="count-label">${src}</span>
+      </div>
+    `).join('');
+
+  } catch (err) {
+    document.getElementById('connector-grid').innerHTML =
+      `<p style="color:#f44336">Failed to load connector status: ${err.message}</p>`;
+  }
+}
+
+loadStatus();
+</script>
+</body>
+</html>

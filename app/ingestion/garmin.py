@@ -15,7 +15,7 @@ from typing import Optional
 from sqlalchemy.orm import Session
 
 from app.config import get_settings
-from app.core.redis_client import cache_get, cache_set
+from app.core.redis_client import append_sync_log, cache_get, cache_set
 from app.models.metric_reading import MetricReading, MetricSource, MetricType
 
 logger = logging.getLogger(__name__)
@@ -210,18 +210,24 @@ def sync_garmin(db: Session) -> list[MetricReading]:
     Returns the saved rows (empty list if skipped or on error).
     Safe to call repeatedly — idempotent.
     """
+    ts = datetime.now(timezone.utc).isoformat()
+
     if _has_today_data(db):
         logger.info("Garmin: today's data already present — skipping")
+        append_sync_log("garmin", {"ts": ts, "status": "skipped", "count": 0, "msg": "today's data already present"})
         return []
 
     settings = get_settings()
 
     if not settings.garmin_enabled:
         logger.info("Garmin: stub mode — saving mock readings")
-        return _persist(db, _stub_reading_dicts())
+        saved = _persist(db, _stub_reading_dicts())
+        append_sync_log("garmin", {"ts": ts, "status": "ok", "count": len(saved), "msg": f"stub mode — {len(saved)} records"})
+        return saved
 
     if not settings.garmin_email or not settings.garmin_password:
         logger.error("Garmin: GARMIN_EMAIL or GARMIN_PASSWORD not set — skipping")
+        append_sync_log("garmin", {"ts": ts, "status": "error", "count": 0, "msg": "credentials not configured"})
         return []
 
     try:
@@ -232,7 +238,9 @@ def sync_garmin(db: Session) -> list[MetricReading]:
         reading_dicts = _parse_garmin_readings(client, today_str)
         saved = _persist(db, reading_dicts)
         logger.info(f"Garmin: saved {len(saved)} readings")
+        append_sync_log("garmin", {"ts": ts, "status": "ok", "count": len(saved), "msg": f"{len(saved)} records saved"})
         return saved
     except Exception as exc:
         logger.error(f"Garmin sync failed: {exc}")
+        append_sync_log("garmin", {"ts": ts, "status": "error", "count": 0, "msg": str(exc)[:120]})
         return []

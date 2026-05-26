@@ -98,3 +98,43 @@ def cache_set(key: str, value: str, ttl_seconds: int) -> None:
         client.setex(key, ttl_seconds, value)
     except Exception as e:
         logger.warning(f"Redis SET failed for key {key}: {e}")
+
+
+_SYNC_LOG_MAX = 20
+_SYNC_LOG_TTL = 30 * 24 * 3600  # 30 days
+
+
+def append_sync_log(source: str, entry: dict) -> None:
+    """Prepend a sync attempt entry to the capped log list for *source*.
+
+    Key: sync:<source>:log  — most-recent entry is at index 0.
+    Capped at _SYNC_LOG_MAX entries.
+    """
+    import json as _json
+
+    client = get_redis()
+    if client is None:
+        return
+    key = f"sync:{source}:log"
+    try:
+        client.lpush(key, _json.dumps(entry))
+        client.ltrim(key, 0, _SYNC_LOG_MAX - 1)
+        client.expire(key, _SYNC_LOG_TTL)
+    except Exception as e:
+        logger.warning(f"append_sync_log failed for {source}: {e}")
+
+
+def get_sync_log(source: str) -> list[dict]:
+    """Return the capped sync attempt log for *source* (newest first)."""
+    import json as _json
+
+    client = get_redis()
+    if client is None:
+        return []
+    key = f"sync:{source}:log"
+    try:
+        raw_list = client.lrange(key, 0, _SYNC_LOG_MAX - 1)
+        return [_json.loads(r) for r in raw_list]
+    except Exception as e:
+        logger.warning(f"get_sync_log failed for {source}: {e}")
+        return []

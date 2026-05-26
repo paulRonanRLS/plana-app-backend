@@ -23,6 +23,7 @@ import requests
 from sqlalchemy.orm import Session
 
 from app.config import get_settings
+from app.core.redis_client import append_sync_log
 from app.models.metric_reading import MetricReading, MetricSource, MetricType
 
 logger = logging.getLogger(__name__)
@@ -206,6 +207,7 @@ def sync_strava(db: Session, days_back: int = 7) -> list[MetricReading]:
     Returns the saved rows (empty list if nothing new or on error).
     Safe to call repeatedly — idempotent per activity ID.
     """
+    ts = datetime.now(timezone.utc).isoformat()
     settings = get_settings()
 
     if not settings.strava_enabled:
@@ -217,12 +219,14 @@ def sync_strava(db: Session, days_back: int = 7) -> list[MetricReading]:
                 continue
             rows = _activity_to_rows(activity)
             saved.extend(_persist(db, rows))
+        append_sync_log("strava", {"ts": ts, "status": "ok", "count": len(saved), "msg": f"stub mode — {len(saved)} records"})
         return saved
 
     required = [settings.strava_client_id, settings.strava_client_secret,
                 settings.strava_refresh_token]
     if not all(required):
         logger.error("Strava: credentials not fully configured — skipping")
+        append_sync_log("strava", {"ts": ts, "status": "error", "count": 0, "msg": "credentials not configured"})
         return []
 
     try:
@@ -242,6 +246,7 @@ def sync_strava(db: Session, days_back: int = 7) -> list[MetricReading]:
         activities_raw = resp.json()
     except Exception as exc:
         logger.error(f"Strava: API request failed: {exc}")
+        append_sync_log("strava", {"ts": ts, "status": "error", "count": 0, "msg": str(exc)[:120]})
         return []
 
     saved = []
@@ -261,4 +266,5 @@ def sync_strava(db: Session, days_back: int = 7) -> list[MetricReading]:
         except Exception as exc:
             logger.error(f"Strava: failed to process activity {raw.get('id')}: {exc}")
 
+    append_sync_log("strava", {"ts": ts, "status": "ok", "count": len(saved), "msg": f"{len(saved)} records saved"})
     return saved
