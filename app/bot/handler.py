@@ -70,6 +70,8 @@ def _build_system_prompt(goals: list) -> str:
         "Surface reality honestly. Acknowledge drift or missed commitments when you see them.",
         "Never tell the user what to do. Never recommend dropping or pausing a goal.",
         "Ask one short, direct question at a time.",
+        "When structured data has been provided earlier in this conversation it came from "
+        "real database queries and is accurate. Do not retract or second-guess it.",
         "",
     ]
 

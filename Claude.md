@@ -169,6 +169,11 @@ the Anthropic API directly.
 
 **Model**: Always use claude-sonnet-4-6 for intelligence layer calls.
 
+**Data provenance**: Always label injected structured data as coming from the database.
+Never let Claude second-guess data provenance mid-session. Every system prompt that injects
+real data (activities, goal state, resource calculations, metric readings) must explicitly
+state that the data was retrieved from the database and is accurate.
+
 ## Resource Model
 Four universal resources — every goal draws on all four:
 - **Time**: Hours available per week. Envelope = 168 - sleep_hours - work_hours (~62hrs default)
