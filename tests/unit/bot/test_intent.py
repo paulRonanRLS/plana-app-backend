@@ -4,7 +4,13 @@ All tests run in stub mode (client=None) — no real Claude calls.
 Claude integration is covered by live tests only.
 """
 
-from app.bot.intent import INTENTS, _stub_classify, classify_intent
+from app.bot.intent import (
+    INTENTS,
+    _STUB_CONFIDENCE,
+    _stub_classify,
+    classify_intent,
+    classify_intent_with_confidence,
+)
 
 
 # ── _stub_classify ─────────────────────────────────────────────────────────────
@@ -150,3 +156,94 @@ def test_stub_activity_query_run_this_morning():
 def test_stub_progress_ran_this_morning_not_query():
     # Past-tense report: no question starter — should remain progress_capture, not activity_query
     assert _stub_classify("ran 10k this morning", is_morning=False) == "progress_capture"
+
+
+# ── classify_intent_with_confidence ───────────────────────────────────────────
+
+def test_with_confidence_returns_tuple_no_client():
+    result = classify_intent_with_confidence("my knee aches", is_morning=False, client=None)
+    assert isinstance(result, tuple)
+    assert len(result) == 2
+
+
+def test_with_confidence_intent_is_valid_no_client():
+    intent, _ = classify_intent_with_confidence("my knee aches", is_morning=False, client=None)
+    assert intent in INTENTS
+
+
+def test_with_confidence_confidence_is_float_no_client():
+    _, confidence = classify_intent_with_confidence("my knee aches", is_morning=False, client=None)
+    assert isinstance(confidence, float)
+    assert 0.0 <= confidence <= 1.0
+
+
+def test_with_confidence_morning_forces_checkin():
+    intent, _ = classify_intent_with_confidence("anything", is_morning=True, client=None)
+    assert intent == "morning_checkin"
+
+
+def test_with_confidence_morning_checkin_has_high_confidence():
+    _, confidence = classify_intent_with_confidence("good morning", is_morning=True, client=None)
+    assert confidence == 1.0
+
+
+def test_with_confidence_physical_state():
+    intent, confidence = classify_intent_with_confidence("my legs are sore", is_morning=False, client=None)
+    assert intent == "physical_state"
+    assert confidence >= 0.9
+
+
+def test_with_confidence_progress_capture():
+    intent, confidence = classify_intent_with_confidence("ran 10k this morning", is_morning=False, client=None)
+    assert intent == "progress_capture"
+    assert 0.0 < confidence <= 1.0
+
+
+def test_with_confidence_free_response_has_lower_confidence():
+    _, confidence = classify_intent_with_confidence("hello there", is_morning=False, client=None)
+    # free_response is the least certain stub intent
+    assert confidence < 0.9
+
+
+def test_with_confidence_all_intents_have_stub_confidence():
+    for intent in INTENTS:
+        assert intent in _STUB_CONFIDENCE
+
+
+def test_with_confidence_claude_valid_json(monkeypatch):
+    from unittest.mock import MagicMock
+    import json as _json
+    client = MagicMock()
+    payload = _json.dumps({"intent": "goal_query", "confidence": 0.92})
+    client.messages.create.return_value.content = [MagicMock(text=payload)]
+    intent, confidence = classify_intent_with_confidence("how are my goals?", is_morning=False, client=client)
+    assert intent == "goal_query"
+    assert confidence == 0.92
+
+
+def test_with_confidence_claude_invalid_json_falls_back():
+    from unittest.mock import MagicMock
+    client = MagicMock()
+    client.messages.create.return_value.content = [MagicMock(text="not json")]
+    intent, confidence = classify_intent_with_confidence("my knee aches", is_morning=False, client=client)
+    assert intent in INTENTS
+    assert 0.0 <= confidence <= 1.0
+
+
+def test_with_confidence_claude_unknown_label_falls_back():
+    from unittest.mock import MagicMock
+    import json as _json
+    client = MagicMock()
+    payload = _json.dumps({"intent": "nonsense", "confidence": 0.99})
+    client.messages.create.return_value.content = [MagicMock(text=payload)]
+    intent, confidence = classify_intent_with_confidence("anything", is_morning=False, client=client)
+    assert intent in INTENTS
+
+
+def test_with_confidence_claude_api_error_falls_back():
+    from unittest.mock import MagicMock
+    client = MagicMock()
+    client.messages.create.side_effect = Exception("timeout")
+    intent, confidence = classify_intent_with_confidence("anything", is_morning=False, client=client)
+    assert intent in INTENTS
+    assert 0.0 <= confidence <= 1.0

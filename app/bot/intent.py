@@ -4,6 +4,7 @@ CLAUDE_ENABLED=true  → one-shot Claude call; expects exactly one label back.
 CLAUDE_ENABLED=false → rule-based keyword stub, good enough for testing.
 """
 
+import json
 import logging
 from typing import Optional
 
@@ -64,6 +65,67 @@ def classify_intent(
     except Exception as e:
         logger.warning(f"Intent classification error: {e} — using stub")
         return _stub_classify(text, is_morning)
+
+
+_USER_TEMPLATE_CONFIDENCE = """\
+Classify this message into exactly one intent and rate your confidence.
+
+  morning_checkin  — waking report: subjective feel, energy, sleep quality
+  progress_capture — reporting an activity or work just done toward a goal
+  physical_state   — physical symptom: sore, fatigued, injured, niggles
+  illness_log      — illness start, progression, or recovery note
+  metric_log       — a specific measurable value (weight, alcohol units, etc.)
+  goal_query       — question about goal status, progress, or resources
+  activity_query   — question about past workouts, rides, runs, or training sessions
+  free_response    — continuation of conversation or anything else
+
+Message: {text}
+
+Reply with JSON only, no other text: {{"intent": "<label>", "confidence": <0.0-1.0>}}"""
+
+# Default confidence values for the keyword stub — used when Claude is unavailable.
+_STUB_CONFIDENCE: dict[str, float] = {
+    "morning_checkin": 1.0,
+    "physical_state": 0.95,
+    "illness_log": 0.95,
+    "metric_log": 0.95,
+    "goal_query": 0.9,
+    "activity_query": 0.9,
+    "progress_capture": 0.85,
+    "free_response": 0.5,
+}
+
+
+def classify_intent_with_confidence(
+    text: str,
+    is_morning: bool,
+    client: Optional[anthropic.Anthropic],
+) -> tuple[str, float]:
+    """Classify intent and return (label, confidence).
+
+    Uses a single Claude call returning JSON when Claude is available.
+    Falls back to the keyword stub with fixed confidence values on any error.
+    """
+    if client is None:
+        intent = _stub_classify(text, is_morning)
+        return intent, _STUB_CONFIDENCE.get(intent, 0.7)
+    try:
+        resp = client.messages.create(
+            model="claude-sonnet-4-6",
+            max_tokens=40,
+            messages=[{"role": "user", "content": _USER_TEMPLATE_CONFIDENCE.format(text=text)}],
+        )
+        raw = resp.content[0].text.strip()
+        data = json.loads(raw)
+        label = data.get("intent", "").lower()
+        confidence = float(data.get("confidence", 0.7))
+        if label in INTENTS:
+            return label, confidence
+        logger.warning(f"Unexpected intent label '{label}' from Claude — using stub")
+    except Exception as e:
+        logger.warning(f"Intent classification error: {e} — using stub")
+    intent = _stub_classify(text, is_morning)
+    return intent, _STUB_CONFIDENCE.get(intent, 0.7)
 
 
 def _stub_classify(text: str, is_morning: bool) -> str:

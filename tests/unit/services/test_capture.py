@@ -1,14 +1,81 @@
 """Unit tests for app/services/capture.py."""
 
+import json
+from datetime import datetime, timezone
+
+from app.models.goal import Goal, GoalState
 from app.models.metric_reading import MetricReading, MetricSource, MetricType
 from app.services.capture import (
     _extract_number,
     _parse_metric,
+    match_goal_title,
     record_illness,
     record_metric,
     record_physical_state,
     record_progress,
 )
+
+
+# ── match_goal_title ───────────────────────────────────────────────────────────
+
+def _make_goal(title: str, state: GoalState = GoalState.active) -> Goal:
+    return Goal(title=title, state=state,
+                created_at=datetime.now(timezone.utc),
+                updated_at=datetime.now(timezone.utc))
+
+
+def test_match_goal_title_explicit_name():
+    goals = [_make_goal("Cooking")]
+    result = match_goal_title("cooked dinner for my cooking goal", goals)
+    assert result is not None
+    assert result.title == "Cooking"
+
+
+def test_match_goal_title_no_match():
+    goals = [_make_goal("Cooking")]
+    result = match_goal_title("went for a run today", goals)
+    assert result is None
+
+
+def test_match_goal_title_case_insensitive():
+    goals = [_make_goal("Half Marathon")]
+    result = match_goal_title("Training for the half marathon today", goals)
+    assert result is not None
+
+
+def test_match_goal_title_returns_first_match():
+    goals = [_make_goal("Cooking"), _make_goal("Running")]
+    result = match_goal_title("did some cooking and running", goals)
+    assert result.title == "Cooking"
+
+
+def test_match_goal_title_word_boundary_no_partial():
+    # "Run" should NOT match inside "running" (different word form is fine due to boundary)
+    goals = [_make_goal("Run")]
+    result = match_goal_title("went running today", goals)
+    # "run" word boundary: "running" does not contain standalone "run" → no match
+    assert result is None
+
+
+def test_match_goal_title_word_boundary_exact():
+    goals = [_make_goal("Run")]
+    result = match_goal_title("did my run today", goals)
+    assert result is not None
+
+
+def test_match_goal_title_multi_word_title():
+    goals = [_make_goal("Half Marathon")]
+    result = match_goal_title("prep for half marathon race", goals)
+    assert result is not None
+
+
+def test_match_goal_title_empty_goals():
+    assert match_goal_title("cooked dinner", []) is None
+
+
+def test_match_goal_title_empty_text():
+    goals = [_make_goal("Cooking")]
+    assert match_goal_title("", goals) is None
 
 
 # ── record_progress ────────────────────────────────────────────────────────────
@@ -40,6 +107,29 @@ def test_record_progress_truncates_long_text(test_db):
     long_text = "x" * 600
     r = record_progress(test_db, long_text)
     assert len(r.text_value) == 500
+
+
+def test_record_progress_with_goal_id_stores_id_in_text_value(test_db):
+    r = record_progress(test_db, "cooked dinner for cooking goal", goal_id=7)
+    assert r.text_value == "7"
+
+
+def test_record_progress_with_goal_id_stores_text_in_notes(test_db):
+    r = record_progress(test_db, "cooked dinner", goal_id=7)
+    notes = json.loads(r.notes)
+    assert notes["goal_id"] == 7
+    assert "cooked dinner" in notes["text"]
+
+
+def test_record_progress_with_goal_id_is_habit_log(test_db):
+    r = record_progress(test_db, "cooked dinner", goal_id=3)
+    assert r.metric_type == MetricType.habit_log
+
+
+def test_record_progress_without_goal_id_unchanged(test_db):
+    r = record_progress(test_db, "did something")
+    assert r.text_value == "did something"
+    assert r.notes is None
 
 
 # ── record_physical_state ──────────────────────────────────────────────────────

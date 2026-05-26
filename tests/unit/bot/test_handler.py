@@ -4,7 +4,7 @@ handle_message itself is tested end-to-end in live tests.
 Here we cover the deterministic helpers that can run without Telegram or Claude.
 """
 
-from app.bot.handler import _build_system_prompt, _stub_response
+from app.bot.handler import _CAPTURE_INTENTS, _build_system_prompt, _stub_response
 from app.models.goal import Goal, GoalState
 
 
@@ -129,3 +129,22 @@ def test_stub_free_response():
 def test_stub_unknown_intent_returns_something():
     resp = _stub_response("nonexistent_intent", is_morning=False)
     assert len(resp) > 0
+
+
+# ── _CAPTURE_INTENTS ───────────────────────────────────────────────────────────
+
+def test_capture_intents_excludes_progress_capture():
+    # progress_capture is handled via goal-matching flow, not the generic write path
+    assert "progress_capture" not in _CAPTURE_INTENTS
+
+
+def test_capture_intents_includes_physical_state():
+    assert "physical_state" in _CAPTURE_INTENTS
+
+
+def test_capture_intents_includes_illness_log():
+    assert "illness_log" in _CAPTURE_INTENTS
+
+
+def test_capture_intents_includes_metric_log():
+    assert "metric_log" in _CAPTURE_INTENTS

@@ -4,10 +4,11 @@ Called by the handler after intent classification. Each capture intent writes
 one row to the metric_readings hypertable with MetricSource.telegram.
 """
 
+import json
 import logging
 import re
 from datetime import datetime, timezone
-from typing import Optional
+from typing import Any, Optional
 
 from sqlalchemy import func
 from sqlalchemy.exc import IntegrityError
@@ -21,8 +22,31 @@ logger = logging.getLogger(__name__)
 _TEXT_LIMIT = 500
 
 
-def record_progress(db: Session, text: str) -> MetricReading:
-    """Write a habit_log record for a progress_capture message."""
+def match_goal_title(text: str, goals: list) -> Optional[Any]:
+    """Return the first non-terminal goal whose title appears in text (word-boundary match).
+
+    Case-insensitive. Matches the full goal title as a contiguous word sequence, so
+    goal "Run" won't match "running" but goal "Cooking" will match "cooking goal".
+    Returns None if no goal matches.
+    """
+    low = text.lower()
+    for goal in goals:
+        pattern = r"\b" + re.escape(goal.title.lower()) + r"\b"
+        if re.search(pattern, low):
+            return goal
+    return None
+
+
+def record_progress(db: Session, text: str, goal_id: Optional[int] = None) -> MetricReading:
+    """Write a habit_log record for a progress_capture message.
+
+    When goal_id is provided, stores it in text_value (per habit_log design) and
+    keeps the original message text in notes JSON.  When omitted, stores the message
+    text directly in text_value (unattributed capture).
+    """
+    if goal_id is not None:
+        notes = json.dumps({"goal_id": goal_id, "text": text[:_TEXT_LIMIT]})
+        return _write(db, MetricType.habit_log, text_value=str(goal_id), notes=notes)
     return _write(db, MetricType.habit_log, text_value=text[:_TEXT_LIMIT])
 
 
