@@ -477,14 +477,15 @@ def get_connectors_status(db: Session = Depends(get_db)):
 def trigger_garmin_sync(db: Session = Depends(get_db)):
     """Manually trigger a Garmin sync. Calls the same function as the scheduled job."""
     from app.ingestion.garmin import sync_garmin
-    from app.core.redis_client import cache_set
+    from app.core.redis_client import cache_get
 
     try:
         rows = sync_garmin(db)
-        last_sync = datetime.now(timezone.utc)
-        cache_set("sync:garmin:last_success", last_sync.isoformat(), 7 * 24 * 3600)
         logger.info(f"Manual Garmin sync: {len(rows)} records")
-        return {"status": "ok", "records_synced": len(rows), "last_sync": last_sync.isoformat()}
+        last_sync = cache_get("sync:garmin:last_success")
+        if not last_sync and rows:
+            last_sync = datetime.now(timezone.utc).isoformat()
+        return {"status": "ok", "records_synced": len(rows), "last_sync": last_sync}
     except Exception as exc:
         logger.error(f"Manual Garmin sync failed: {exc}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(exc))
@@ -494,14 +495,15 @@ def trigger_garmin_sync(db: Session = Depends(get_db)):
 def trigger_strava_sync(db: Session = Depends(get_db)):
     """Manually trigger a Strava sync. Calls the same function as the scheduled job."""
     from app.ingestion.strava import sync_strava
-    from app.core.redis_client import cache_set
+    from app.core.redis_client import cache_get
 
     try:
         rows = sync_strava(db)
-        last_sync = datetime.now(timezone.utc)
-        cache_set("sync:strava:last_success", last_sync.isoformat(), 7 * 24 * 3600)
         logger.info(f"Manual Strava sync: {len(rows)} records")
-        return {"status": "ok", "records_synced": len(rows), "last_sync": last_sync.isoformat()}
+        last_sync = cache_get("sync:strava:last_success")
+        if not last_sync and rows:
+            last_sync = datetime.now(timezone.utc).isoformat()
+        return {"status": "ok", "records_synced": len(rows), "last_sync": last_sync}
     except Exception as exc:
         logger.error(f"Manual Strava sync failed: {exc}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(exc))

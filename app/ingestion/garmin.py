@@ -16,6 +16,9 @@ from sqlalchemy.orm import Session
 
 from app.config import get_settings
 from app.core.redis_client import append_sync_log, cache_get, cache_set
+
+_LAST_SUCCESS_KEY = "sync:garmin:last_success"
+_LAST_SUCCESS_TTL = 7 * 24 * 3600
 from app.models.metric_reading import MetricReading, MetricSource, MetricType
 
 logger = logging.getLogger(__name__)
@@ -222,6 +225,7 @@ def sync_garmin(db: Session) -> list[MetricReading]:
     if not settings.garmin_enabled:
         logger.info("Garmin: stub mode — saving mock readings")
         saved = _persist(db, _stub_reading_dicts())
+        cache_set(_LAST_SUCCESS_KEY, ts, _LAST_SUCCESS_TTL)
         append_sync_log("garmin", {"ts": ts, "status": "ok", "count": len(saved), "msg": f"stub mode — {len(saved)} records"})
         return saved
 
@@ -237,6 +241,7 @@ def sync_garmin(db: Session) -> list[MetricReading]:
         today_str = date.today().isoformat()
         reading_dicts = _parse_garmin_readings(client, today_str)
         saved = _persist(db, reading_dicts)
+        cache_set(_LAST_SUCCESS_KEY, ts, _LAST_SUCCESS_TTL)
         logger.info(f"Garmin: saved {len(saved)} readings")
         append_sync_log("garmin", {"ts": ts, "status": "ok", "count": len(saved), "msg": f"{len(saved)} records saved"})
         return saved

@@ -19,7 +19,6 @@ Jobs are idempotent, so re-running them is always safe.
 
 import asyncio
 import logging
-from datetime import datetime, timezone
 
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
@@ -32,7 +31,6 @@ logger = logging.getLogger(__name__)
 def _garmin_job() -> None:
     """Scheduled wrapper around garmin.sync_garmin — creates its own DB session."""
     from app.ingestion.garmin import sync_garmin
-    from app.core.redis_client import cache_set
     db = SessionLocal()
     try:
         rows = sync_garmin(db)
@@ -40,7 +38,6 @@ def _garmin_job() -> None:
             logger.info(f"Garmin job: stored {len(rows)} readings")
         else:
             logger.debug("Garmin job: no new data")
-        cache_set("sync:garmin:last_success", datetime.now(timezone.utc).isoformat(), 7 * 24 * 3600)
     except Exception as exc:
         logger.error(f"Garmin job failed: {exc}", exc_info=True)
     finally:
@@ -50,7 +47,6 @@ def _garmin_job() -> None:
 def _strava_job() -> None:
     """Scheduled wrapper around strava.sync_strava — creates its own DB session."""
     from app.ingestion.strava import sync_strava
-    from app.core.redis_client import cache_set
     db = SessionLocal()
     try:
         rows = sync_strava(db)
@@ -58,7 +54,6 @@ def _strava_job() -> None:
             logger.info(f"Strava job: stored {len(rows)} rows")
         else:
             logger.debug("Strava job: no new activities")
-        cache_set("sync:strava:last_success", datetime.now(timezone.utc).isoformat(), 7 * 24 * 3600)
     except Exception as exc:
         logger.error(f"Strava job failed: {exc}", exc_info=True)
     finally:

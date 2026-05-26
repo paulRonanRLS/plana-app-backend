@@ -23,7 +23,10 @@ import requests
 from sqlalchemy.orm import Session
 
 from app.config import get_settings
-from app.core.redis_client import append_sync_log
+from app.core.redis_client import append_sync_log, cache_set
+
+_LAST_SUCCESS_KEY = "sync:strava:last_success"
+_LAST_SUCCESS_TTL = 7 * 24 * 3600
 from app.models.metric_reading import MetricReading, MetricSource, MetricType
 
 logger = logging.getLogger(__name__)
@@ -219,6 +222,8 @@ def sync_strava(db: Session, days_back: int = 7) -> list[MetricReading]:
                 continue
             rows = _activity_to_rows(activity)
             saved.extend(_persist(db, rows))
+        if saved:
+            cache_set(_LAST_SUCCESS_KEY, ts, _LAST_SUCCESS_TTL)
         append_sync_log("strava", {"ts": ts, "status": "ok", "count": len(saved), "msg": f"stub mode — {len(saved)} records"})
         return saved
 
@@ -266,5 +271,7 @@ def sync_strava(db: Session, days_back: int = 7) -> list[MetricReading]:
         except Exception as exc:
             logger.error(f"Strava: failed to process activity {raw.get('id')}: {exc}")
 
+    if saved:
+        cache_set(_LAST_SUCCESS_KEY, ts, _LAST_SUCCESS_TTL)
     append_sync_log("strava", {"ts": ts, "status": "ok", "count": len(saved), "msg": f"{len(saved)} records saved"})
     return saved
