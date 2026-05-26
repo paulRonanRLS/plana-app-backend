@@ -80,9 +80,13 @@ def _stub_classify(text: str, is_morning: bool) -> str:
     if any(w in low for w in ("kg", "lb", "weight", "unit", "alcohol", "drank")):
         return "metric_log"
     _activity_keywords = ("ride", "run", "rode", "ran", "swim", "swam", "workout", "training", "session")
-    _temporal_keywords = ("yesterday", "last", "sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "week", "today")
+    _temporal_keywords = ("yesterday", "last", "sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "week", "today", "this morning")
+    _query_starters = ("how", "what", "show", "tell", "did", "was", "were")
     if any(w in low for w in _activity_keywords) and any(w in low for w in _temporal_keywords):
-        return "activity_query"
+        # Only classify as activity_query when the message reads as a question/lookup,
+        # not a past-tense progress report ("ran 10k this morning" is a capture, not a query).
+        if any(low.startswith(q) for q in _query_starters):
+            return "activity_query"
     if any(w in low for w in ("ran", "cycled", "trained", "wrote", "cooked", "did", "finished", "completed")):
         return "progress_capture"
     return "free_response"

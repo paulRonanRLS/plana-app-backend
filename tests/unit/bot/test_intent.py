@@ -141,3 +141,12 @@ def test_stub_activity_no_temporal_not_activity_query():
 
 def test_stub_activity_query_session_last():
     assert _stub_classify("what was my training session last Tuesday?", is_morning=False) == "activity_query"
+
+
+def test_stub_activity_query_run_this_morning():
+    assert _stub_classify("how was my run this morning", is_morning=False) == "activity_query"
+
+
+def test_stub_progress_ran_this_morning_not_query():
+    # Past-tense report: no question starter — should remain progress_capture, not activity_query
+    assert _stub_classify("ran 10k this morning", is_morning=False) == "progress_capture"

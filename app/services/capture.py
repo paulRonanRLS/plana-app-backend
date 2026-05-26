@@ -1,0 +1,118 @@
+"""Capture service — persist Telegram bot messages as MetricReadings.
+
+Called by the handler after intent classification. Each capture intent writes
+one row to the metric_readings hypertable with MetricSource.telegram.
+"""
+
+import logging
+import re
+from datetime import datetime, timezone
+from typing import Optional
+
+from sqlalchemy import func
+from sqlalchemy.exc import IntegrityError
+from sqlalchemy.orm import Session
+
+from app.models.metric_reading import MetricReading, MetricSource, MetricType
+
+logger = logging.getLogger(__name__)
+
+# Maximum text stored in text_value to avoid bloating the hypertable.
+_TEXT_LIMIT = 500
+
+
+def record_progress(db: Session, text: str) -> MetricReading:
+    """Write a habit_log record for a progress_capture message."""
+    return _write(db, MetricType.habit_log, text_value=text[:_TEXT_LIMIT])
+
+
+def record_physical_state(db: Session, text: str) -> MetricReading:
+    """Write a physical_state record."""
+    return _write(db, MetricType.physical_state, text_value=text[:_TEXT_LIMIT])
+
+
+def record_illness(db: Session, text: str) -> MetricReading:
+    """Write an illness_log record."""
+    return _write(db, MetricType.illness_log, text_value=text[:_TEXT_LIMIT])
+
+
+def record_metric(db: Session, text: str) -> MetricReading:
+    """Extract value and metric type from text and write a MetricReading."""
+    metric_type, value = _parse_metric(text)
+    return _write(db, metric_type, value=value, text_value=text[:_TEXT_LIMIT])
+
+
+# ── Helpers ────────────────────────────────────────────────────────────────────
+
+def _parse_metric(text: str) -> tuple[MetricType, Optional[float]]:
+    """Infer MetricType and numeric value from natural language."""
+    low = text.lower()
+    value = _extract_number(text)
+    if any(w in low for w in ("kg", "lb", "lbs", "weight", "weigh")):
+        return MetricType.weight, value
+    if any(w in low for w in ("unit", "units", "drink", "drinks", "glass", "glasses",
+                               "beer", "wine", "alcohol")):
+        return MetricType.alcohol_units, value
+    # No recognised metric type — store as habit_log so nothing is lost.
+    return MetricType.habit_log, value
+
+
+def _extract_number(text: str) -> Optional[float]:
+    """Return the first integer or decimal found in text, or None."""
+    m = re.search(r"(\d+(?:\.\d+)?)", text)
+    return float(m.group(1)) if m else None
+
+
+def _write(
+    db: Session,
+    metric_type: MetricType,
+    *,
+    value: Optional[float] = None,
+    text_value: Optional[str] = None,
+    notes: Optional[str] = None,
+) -> MetricReading:
+    return _persist(db, [{
+        "timestamp": datetime.now(timezone.utc),
+        "metric_type": metric_type,
+        "value": value,
+        "text_value": text_value,
+        "source": MetricSource.telegram,
+        "notes": notes,
+    }])[0]
+
+
+def _persist(db: Session, row_dicts: list[dict]) -> list[MetricReading]:
+    """Insert MetricReading rows.
+
+    Tries without explicit IDs first (PostgreSQL sequence). Falls back to
+    explicit IDs on IntegrityError so SQLite test databases work too.
+    """
+    def _build(id_offset: Optional[int]) -> list[MetricReading]:
+        max_id = 0
+        if id_offset is not None:
+            max_id = db.query(func.max(MetricReading.id)).scalar() or 0
+        rows = []
+        for i, r in enumerate(row_dicts):
+            row = MetricReading(
+                timestamp=r["timestamp"],
+                metric_type=r["metric_type"],
+                value=r.get("value"),
+                text_value=r.get("text_value"),
+                source=r.get("source", MetricSource.telegram),
+                notes=r.get("notes"),
+            )
+            if id_offset is not None:
+                row.id = max_id + i + 1
+            db.add(row)
+            rows.append(row)
+        return rows
+
+    rows = _build(id_offset=None)
+    try:
+        db.commit()
+        return rows
+    except IntegrityError:
+        db.rollback()
+        rows = _build(id_offset=0)
+        db.commit()
+        return rows

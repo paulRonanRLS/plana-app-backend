@@ -59,6 +59,16 @@ def test_parse_iso_date():
     assert start.date() == datetime(2026, 5, 20, tzinfo=timezone.utc).date()
 
 
+def test_parse_this_morning():
+    start, end = parse_date_reference("how was my run this morning", today=_today())
+    assert start.date() == _today().date()
+
+
+def test_parse_morning_only():
+    start, end = parse_date_reference("my morning workout", today=_today())
+    assert start.date() == _today().date()
+
+
 def test_parse_default_falls_back_to_yesterday():
     # No temporal marker — should default to yesterday
     start, end = parse_date_reference("show me my ride", today=_today())

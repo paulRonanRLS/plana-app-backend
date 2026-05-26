@@ -1,6 +1,7 @@
 """Activity query service — date parsing and DB retrieval for past activities."""
 
 import json
+import logging
 import re
 from datetime import datetime, timedelta, timezone
 from typing import Optional
@@ -8,6 +9,8 @@ from typing import Optional
 from sqlalchemy.orm import Session
 
 from app.models.metric_reading import MetricReading, MetricSource, MetricType
+
+logger = logging.getLogger(__name__)
 
 _WEEKDAYS = {
     "monday": 0, "tuesday": 1, "wednesday": 2, "thursday": 3,
@@ -59,8 +62,9 @@ def parse_date_reference(text: str, today: Optional[datetime] = None) -> tuple[d
         end = datetime.combine(last_sunday, datetime.max.time().replace(microsecond=0), tzinfo=timezone.utc)
         return start, end
 
-    # "today"
-    if "today" in low:
+    # "today" or "this morning" / "morning"
+    if "today" in low or "morning" in low:
+        logger.debug(f"parse_date_reference: matched today/morning → {today_date}")
         return _day_range(today_date)
 
     # "yesterday"
@@ -75,9 +79,11 @@ def parse_date_reference(text: str, today: Optional[datetime] = None) -> tuple[d
             # If that day is in the future or is today, go back one week
             if this_week_day >= today_date:
                 this_week_day -= timedelta(days=7)
+            logger.debug(f"parse_date_reference: matched weekday '{name}' → {this_week_day}")
             return _day_range(this_week_day)
 
     # Default: yesterday
+    logger.debug(f"parse_date_reference: no temporal marker found — defaulting to yesterday")
     return _day_range(today_date - timedelta(days=1))
 
 
@@ -115,6 +121,10 @@ def query_activities(
     ).order_by(MetricReading.timestamp.desc())
 
     rows = q.all()
+    logger.debug(
+        f"query_activities: range={start.date()}–{end.date()} "
+        f"type={activity_type!r} raw_rows={len(rows)}"
+    )
     results = []
     for row in rows:
         try:
@@ -137,8 +147,6 @@ def query_activities(
         # normalise hr field names — strava stores avg_hr; use average_hr
         if "average_hr" not in activity and "avg_hr" in activity:
             activity["average_hr"] = activity["avg_hr"]
-        if "max_hr" not in activity and "max_hr" in activity:
-            pass  # already correct key
 
         if activity_type and activity_type != "any":
             sport = activity.get("sport_type", "").lower()
@@ -147,4 +155,5 @@ def query_activities(
 
         results.append(activity)
 
+    logger.debug(f"query_activities: returning {len(results)} activities after type filter")
     return results

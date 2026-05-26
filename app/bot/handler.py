@@ -5,8 +5,8 @@ Flow per message:
   2. Classify intent (Claude or stub)
   3. Force intent = morning_checkin when before 10am and not mid-conversation
   4. Append user message to Redis session
-  5. Load current goals → build system prompt
-  6. Get response: real Claude conversation or stub
+  5. Open DB — persist capture records for capture intents (always)
+  6. Generate response: specialised path per intent or generic Claude conversation
   7. Append assistant response to session
   8. Reply to user
 """
@@ -31,7 +31,9 @@ from app.core.redis_client import get_redis
 from app.database import SessionLocal
 from app.intelligence import checkin as checkin_module
 from app.intelligence import activity_query as activity_query_module
+from app.intelligence import goal_query as goal_query_module
 from app.models.goal import Goal, GoalState
+from app.services import capture as capture_service
 from app.services.goal import TERMINAL_STATES
 from app.services.resource import get_resource_tension
 from app.services.activity import parse_date_reference, query_activities, _parse_activity_type
@@ -40,6 +42,14 @@ logger = logging.getLogger(__name__)
 
 MORNING_CUTOFF_HOUR = 10
 MAX_HISTORY = 20  # messages retained in context window
+
+# Intents that always write a MetricReading regardless of Claude availability.
+_CAPTURE_INTENTS = frozenset({
+    "progress_capture",
+    "physical_state",
+    "illness_log",
+    "metric_log",
+})
 
 
 # ── Pure helpers (unit-testable) ───────────────────────────────────────────────
@@ -94,6 +104,24 @@ def _stub_response(intent: str, is_morning: bool) -> str:
     }.get(intent, "Got it.")
 
 
+def _write_capture(db, intent: str, text: str) -> None:
+    """Persist a MetricReading for capture intents. Silently skips other intents."""
+    if intent not in _CAPTURE_INTENTS:
+        return
+    try:
+        if intent == "progress_capture":
+            capture_service.record_progress(db, text)
+        elif intent == "physical_state":
+            capture_service.record_physical_state(db, text)
+        elif intent == "illness_log":
+            capture_service.record_illness(db, text)
+        elif intent == "metric_log":
+            capture_service.record_metric(db, text)
+        logger.debug(f"Capture persisted: intent={intent}")
+    except Exception as e:
+        logger.error(f"Capture persist failed for intent={intent}: {e}")
+
+
 # ── Response generation ────────────────────────────────────────────────────────
 
 async def _claude_response(
@@ -139,9 +167,12 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
     messages = session_mgr.append_message(redis_client, "user", text)
 
-    if claude_client is not None:
-        db = SessionLocal()
-        try:
+    db = SessionLocal()
+    try:
+        # Always persist captures, regardless of Claude availability.
+        _write_capture(db, intent, text)
+
+        if claude_client is not None:
             goals = db.query(Goal).all()
             if intent == "morning_checkin":
                 tension = get_resource_tension(db)
@@ -159,19 +190,28 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             elif intent == "activity_query":
                 start, end = parse_date_reference(text)
                 activity_type = _parse_activity_type(text)
+                logger.debug(
+                    f"activity_query: type={activity_type!r} "
+                    f"range={start.date()}–{end.date()}"
+                )
                 activities = await asyncio.to_thread(
                     query_activities, db, start, end, activity_type
                 )
+                logger.debug(f"activity_query: found {len(activities)} activities")
                 response_text = await asyncio.to_thread(
                     activity_query_module.build_response, text, activities, claude_client
+                )
+            elif intent == "goal_query":
+                response_text = await asyncio.to_thread(
+                    goal_query_module.build_response, text, goals, db, claude_client
                 )
             else:
                 system_prompt = _build_system_prompt(goals)
                 response_text = await _claude_response(messages, system_prompt, claude_client)
-        finally:
-            db.close()
-    else:
-        response_text = _stub_response(intent, is_morning)
+        else:
+            response_text = _stub_response(intent, is_morning)
+    finally:
+        db.close()
 
     session_mgr.append_message(redis_client, "assistant", response_text)
     await update.message.reply_text(response_text)
