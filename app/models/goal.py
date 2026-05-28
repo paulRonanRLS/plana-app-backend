@@ -23,6 +23,19 @@ class GoalType(str, enum.Enum):
     habit = "habit"            # recurring behaviour tracked by weekly frequency
 
 
+class HabitType(str, enum.Enum):
+    count = "count"           # number of sessions/occurrences
+    duration = "duration"     # total minutes
+    consistency = "consistency"  # consecutive day streak
+    volume = "volume"         # cumulative amount (steps, litres, etc.)
+
+
+class HabitPeriod(str, enum.Enum):
+    day = "day"
+    week = "week"
+    month = "month"
+
+
 class Goal(Base):
     __tablename__ = "goals"
 
@@ -42,6 +55,13 @@ class Goal(Base):
     target_max = Column(Float, nullable=True)
     # When True, drift detection is suppressed (user-acknowledged recovery period)
     is_recovering = Column(Boolean, nullable=False, default=False)
+
+    # Template and habit metadata
+    template_id = Column(String(100), nullable=True)
+    habit_type = Column(Enum(HabitType), nullable=True)
+    habit_unit = Column(String(50), nullable=True)
+    habit_period = Column(Enum(HabitPeriod), nullable=True)
+    capture_keywords = Column(Text, nullable=True)  # JSON array of keyword strings
 
     created_at = Column(
         DateTime(timezone=True),

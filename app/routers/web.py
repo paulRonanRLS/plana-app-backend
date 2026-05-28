@@ -1,10 +1,11 @@
 """Web frontend API — data endpoints for the three HTML views."""
 
+import json
 import logging
 from datetime import date, datetime, timedelta, timezone
 from typing import Optional
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Body, Depends, HTTPException
 from fastapi.responses import RedirectResponse
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
@@ -12,8 +13,7 @@ from sqlalchemy.orm import Session
 from app.bot.intent import classify_intent
 from app.core.claude_client import get_client
 from app.dependencies.db import get_db
-from fastapi import HTTPException
-from app.models.goal import Goal, GoalState, GoalType
+from app.models.goal import Goal, GoalState, GoalType, HabitPeriod, HabitType
 from app.models.metric_reading import MetricReading, MetricSource, MetricType
 from app.models.milestone import Milestone, MilestoneState
 from app.services.goal import TERMINAL_STATES, activate_goal, create_goal
@@ -27,12 +27,24 @@ class CaptureRequest(BaseModel):
     text: str
 
 
+class HabitLogRequest(BaseModel):
+    value: float = 1.0
+
+
 class GoalCreateRequest(BaseModel):
     title: str
-    goal_type: Optional[str] = None   # "achievement" | "perpetual" | "habit"
+    goal_type: Optional[str] = None
     description: Optional[str] = None
     target_date: Optional[date] = None
-    weekly_target: Optional[int] = None   # habit goals only
+    weekly_target: Optional[int] = None
+    template_id: Optional[str] = None
+    habit_type: Optional[str] = None
+    habit_unit: Optional[str] = None
+    habit_period: Optional[str] = None
+    capture_keywords: Optional[list[str]] = None
+    target_min: Optional[float] = None
+    target_max: Optional[float] = None
+    target_metric_type: Optional[str] = None
 
 
 def _iso_week_bounds() -> tuple[date, date]:
@@ -59,6 +71,66 @@ def _habit_count_this_week(db: Session, goal_id: int) -> int:
         )
         .count()
     )
+
+
+def _period_bounds(period: str) -> tuple[datetime, datetime]:
+    """Return (start, end) datetime bounds for the given period string."""
+    now = datetime.now(timezone.utc)
+    if period == "day":
+        start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+        return start, start + timedelta(days=1)
+    if period == "month":
+        start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+        if now.month == 12:
+            end = now.replace(year=now.year + 1, month=1, day=1, hour=0, minute=0, second=0, microsecond=0)
+        else:
+            end = now.replace(month=now.month + 1, day=1, hour=0, minute=0, second=0, microsecond=0)
+        return start, end
+    # default: week
+    return _week_datetime_bounds()
+
+
+def _habit_accumulation(db: Session, goal_id: int, period: str = "week") -> dict:
+    """Return count and value sum for habit_log readings in the current period."""
+    start_dt, end_dt = _period_bounds(period)
+    rows = (
+        db.query(MetricReading)
+        .filter(
+            MetricReading.metric_type == MetricType.habit_log,
+            MetricReading.text_value == str(goal_id),
+            MetricReading.timestamp >= start_dt,
+            MetricReading.timestamp < end_dt,
+        )
+        .all()
+    )
+    count = len(rows)
+    total = sum(r.value or 1.0 for r in rows)
+    return {"count": count, "sum": round(total, 2)}
+
+
+def _habit_streak(db: Session, goal_id: int) -> int:
+    """Count consecutive days ending today that have at least one habit_log entry."""
+    today = datetime.now(timezone.utc).date()
+    streak = 0
+    for days_back in range(60):
+        day = today - timedelta(days=days_back)
+        day_start = datetime.combine(day, datetime.min.time()).replace(tzinfo=timezone.utc)
+        day_end = day_start + timedelta(days=1)
+        count = (
+            db.query(MetricReading)
+            .filter(
+                MetricReading.metric_type == MetricType.habit_log,
+                MetricReading.text_value == str(goal_id),
+                MetricReading.timestamp >= day_start,
+                MetricReading.timestamp < day_end,
+            )
+            .count()
+        )
+        if count > 0:
+            streak += 1
+        else:
+            break
+    return streak
 
 
 def _latest_metric_value(db: Session, metric_type_str: str) -> Optional[float]:
@@ -268,7 +340,18 @@ def get_goals_summary(db: Session = Depends(get_db)):
             "created_at": g.created_at.isoformat() if g.created_at else None,
         }
         if g.goal_type == GoalType.habit:
-            entry["this_week_count"] = _habit_count_this_week(db, g.id)
+            period = g.habit_period.value if g.habit_period else "week"
+            habit_type = g.habit_type.value if g.habit_type else "count"
+            accum = _habit_accumulation(db, g.id, period)
+            entry["habit_type"] = habit_type
+            entry["habit_unit"] = g.habit_unit or "sessions"
+            entry["habit_period"] = period
+            entry["this_week_count"] = _habit_count_this_week(db, g.id)  # backward compat
+            entry["this_period_count"] = accum["count"]
+            entry["this_period_sum"] = accum["sum"]
+            if habit_type == "consistency":
+                entry["streak"] = _habit_streak(db, g.id)
+            entry["capture_keywords"] = json.loads(g.capture_keywords) if g.capture_keywords else []
         if g.goal_type == GoalType.perpetual:
             if g.target_metric_type:
                 current, previous = _latest_two_metric_values(db, g.target_metric_type)
@@ -336,33 +419,69 @@ def create_new_goal(body: GoalCreateRequest, db: Session = Depends(get_db)):
     )
     goal = activate_goal(db, goal.id)
 
+    updates: dict = {}
+
     if body.goal_type:
         try:
-            goal.goal_type = GoalType(body.goal_type)
-            goal.updated_at = datetime.now(timezone.utc)
-            db.commit()
-            db.refresh(goal)
+            updates["goal_type"] = GoalType(body.goal_type)
         except ValueError:
             pass
 
     if body.weekly_target is not None:
-        goal.weekly_target = body.weekly_target
+        updates["weekly_target"] = body.weekly_target
+
+    if body.template_id:
+        updates["template_id"] = body.template_id
+
+    if body.habit_type:
+        try:
+            updates["habit_type"] = HabitType(body.habit_type)
+        except ValueError:
+            pass
+
+    if body.habit_unit:
+        updates["habit_unit"] = body.habit_unit
+
+    if body.habit_period:
+        try:
+            updates["habit_period"] = HabitPeriod(body.habit_period)
+        except ValueError:
+            pass
+
+    if body.capture_keywords is not None:
+        updates["capture_keywords"] = json.dumps(body.capture_keywords)
+
+    if body.target_metric_type:
+        updates["target_metric_type"] = body.target_metric_type
+    if body.target_min is not None:
+        updates["target_min"] = body.target_min
+    if body.target_max is not None:
+        updates["target_max"] = body.target_max
+
+    if updates:
+        for k, v in updates.items():
+            setattr(goal, k, v)
         goal.updated_at = datetime.now(timezone.utc)
         db.commit()
         db.refresh(goal)
 
-    logger.info(f"create_new_goal: id={goal.id} title={goal.title!r} type={goal.goal_type}")
+    logger.info(f"create_new_goal: id={goal.id} title={goal.title!r} type={goal.goal_type} template={goal.template_id}")
     return {
         "id": goal.id,
         "title": goal.title,
         "state": goal.state.value,
         "goal_type": goal.goal_type.value if goal.goal_type else None,
+        "template_id": goal.template_id,
     }
 
 
 @router.post("/v1/goals/{goal_id}/habit/log", status_code=201)
-def log_habit(goal_id: int, db: Session = Depends(get_db)):
-    """Record one habit completion for today."""
+def log_habit(
+    goal_id: int,
+    body: HabitLogRequest = Body(default=HabitLogRequest()),
+    db: Session = Depends(get_db),
+):
+    """Record a habit completion for today. value=1 for count/consistency, minutes for duration, amount for volume."""
     goal = db.query(Goal).filter(Goal.id == goal_id).first()
     if not goal:
         raise HTTPException(status_code=404, detail="Goal not found")
@@ -373,13 +492,52 @@ def log_habit(goal_id: int, db: Session = Depends(get_db)):
         timestamp=datetime.now(timezone.utc),
         metric_type=MetricType.habit_log,
         text_value=str(goal_id),
-        value=1.0,
+        value=body.value,
         source=MetricSource.manual,
     )
     db.add(reading)
     db.commit()
 
-    return {"goal_id": goal_id, "this_week_count": _habit_count_this_week(db, goal_id)}
+    period = goal.habit_period.value if goal.habit_period else "week"
+    habit_type = goal.habit_type.value if goal.habit_type else "count"
+    accum = _habit_accumulation(db, goal_id, period)
+
+    result = {
+        "goal_id": goal_id,
+        "this_week_count": _habit_count_this_week(db, goal_id),
+        "this_period_count": accum["count"],
+        "this_period_sum": accum["sum"],
+        "habit_type": habit_type,
+        "habit_period": period,
+    }
+    if habit_type == "consistency":
+        result["streak"] = _habit_streak(db, goal_id)
+    return result
+
+
+# ── Template endpoints ─────────────────────────────────────────────────────────
+
+@router.get("/v1/templates")
+def get_templates():
+    """Return all goal templates grouped by category."""
+    from app.services.template import list_templates_by_category
+    return {"categories": list_templates_by_category()}
+
+
+@router.post("/v1/templates/{template_id}/preview")
+def preview_template(template_id: str, db: Session = Depends(get_db)):
+    """Return suggested target range or capability baseline for a template."""
+    from app.services.template import get_template, suggest_target_range
+    template = get_template(template_id)
+    if not template:
+        raise HTTPException(status_code=404, detail="Template not found")
+    return {
+        "template_id": template_id,
+        "goal_type": template.get("goal_type"),
+        "capability_fields": template.get("capability_fields", []),
+        "milestone_phases": template.get("milestone_phases", []),
+        **suggest_target_range(template, db),
+    }
 
 
 @router.get("/v1/health/integrations")

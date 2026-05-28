@@ -20,47 +20,47 @@
 <main>
   <div class="goals-toolbar">
     <span class="goals-toolbar-title">Active Goals</span>
-    <button class="btn btn-primary" id="add-goal-btn" onclick="toggleAddGoalForm()">+ Add Goal</button>
+    <button class="btn btn-primary" id="add-goal-btn" onclick="openAddGoalWizard()">+ Add Goal</button>
   </div>
 
-  <div class="add-goal-panel hidden" id="add-goal-panel">
-    <form id="add-goal-form">
-      <div class="form-group">
-        <label class="form-label" for="new-goal-title">Goal name</label>
-        <input type="text" class="form-input" id="new-goal-title" required
-               placeholder="e.g. Run a half marathon">
+  <!-- Multi-step Add Goal Wizard -->
+  <div class="add-goal-wizard hidden" id="add-goal-wizard">
+
+    <!-- Step 1: Category selection -->
+    <div id="wizard-step-1">
+      <div class="wizard-nav">
+        <h3>Choose a category</h3>
+        <button class="btn" onclick="closeAddGoalWizard()">Cancel</button>
       </div>
-      <div class="form-row">
-        <div class="form-group">
-          <label class="form-label" for="new-goal-type">Type</label>
-          <select class="form-select" id="new-goal-type" onchange="handleGoalTypeChange()">
-            <option value="achievement">Achievement</option>
-            <option value="perpetual">Perpetual</option>
-            <option value="habit">Habit</option>
-          </select>
+      <div class="category-grid" id="wizard-categories"></div>
+    </div>
+
+    <!-- Step 2: Template selection -->
+    <div id="wizard-step-2" class="hidden">
+      <div class="wizard-nav">
+        <button class="btn" onclick="wizardGoTo(1)">← Back</button>
+        <h3 id="wizard-cat-label">Templates</h3>
+        <button class="btn" onclick="closeAddGoalWizard()">Cancel</button>
+      </div>
+      <div class="template-grid" id="wizard-templates"></div>
+    </div>
+
+    <!-- Step 3: Configure form -->
+    <div id="wizard-step-3" class="hidden">
+      <div class="wizard-nav">
+        <button class="btn" id="wizard-back-3" onclick="wizardGoTo(2)">← Back</button>
+        <h3 id="wizard-config-label">Configure goal</h3>
+        <button class="btn" onclick="closeAddGoalWizard()">Cancel</button>
+      </div>
+      <form id="wizard-config-form">
+        <div id="wizard-config-fields"></div>
+        <div class="form-actions">
+          <button type="submit" class="btn btn-primary" id="wizard-submit">Create Goal</button>
+          <span class="form-feedback" id="wizard-feedback"></span>
         </div>
-        <div class="form-group" id="deadline-group">
-          <label class="form-label" for="new-goal-deadline">Deadline</label>
-          <input type="date" class="form-input" id="new-goal-deadline">
-        </div>
-        <div class="form-group hidden" id="habit-target-group">
-          <label class="form-label" for="new-goal-weekly-target">Times per week</label>
-          <input type="number" class="form-input" id="new-goal-weekly-target" min="1" max="30" placeholder="5">
-        </div>
-      </div>
-      <div class="form-group">
-        <label class="form-label" for="new-goal-description">
-          Description <span class="form-optional">(optional)</span>
-        </label>
-        <textarea class="form-textarea" id="new-goal-description" rows="2"
-                  placeholder="What does success look like?"></textarea>
-      </div>
-      <div class="form-actions">
-        <button type="submit" class="btn btn-primary" id="add-goal-submit">Create Goal</button>
-        <button type="button" class="btn" onclick="toggleAddGoalForm()">Cancel</button>
-        <span class="form-feedback" id="add-goal-feedback"></span>
-      </div>
-    </form>
+      </form>
+    </div>
+
   </div>
 
   <div id="goals-list">

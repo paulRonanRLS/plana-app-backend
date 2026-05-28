@@ -305,22 +305,7 @@ function renderGoalCards(goals) {
 
     let typeBody = '';
     if (g.goal_type === 'habit') {
-      const count  = g.this_week_count || 0;
-      const target = g.weekly_target   || 1;
-      const pct    = Math.min(Math.round((count / target) * 100), 100);
-      typeBody = `
-        <div class="habit-progress">
-          <div class="habit-stat">
-            <span class="habit-count" id="habit-count-${g.id}">${count}</span>
-            <span class="habit-target">/ ${target}</span>
-            <span class="habit-unit">this week</span>
-          </div>
-          <div class="progress-track">
-            <div class="progress-fill${pct >= 100 ? '' : ''}"
-                 id="habit-bar-${g.id}"
-                 style="width:${pct}%; background:${pct >= 100 ? 'var(--rag-green)' : 'var(--teal)'}"></div>
-          </div>
-        </div>`;
+      typeBody = renderHabitBody(g);
     } else if (g.goal_type === 'perpetual') {
       const val   = g.current_value != null ? g.current_value : '—';
       const range = (g.target_min != null || g.target_max != null)
@@ -341,10 +326,6 @@ function renderGoalCards(goals) {
     const costHtml = costParts.length
       ? `<div class="weekly-cost">${costParts.join(' · ')}</div>` : '';
 
-    const habitLogBtn = g.goal_type === 'habit'
-      ? `<button class="btn btn-primary" id="habit-log-btn-${g.id}"
-           onclick="logHabit(${g.id}, this)">+1 Done</button>` : '';
-
     return `
       <div class="goal-card ${cardClass}">
         <div class="goal-card-header" onclick="toggleGoal(this)">
@@ -361,7 +342,6 @@ function renderGoalCards(goals) {
             ? `<div class="sacrifice-note">${g.sacrifice_count} sacrifice${g.sacrifice_count !== 1 ? 's' : ''} logged</div>`
             : ''}
           <div class="goal-actions">
-            ${habitLogBtn}
             <button class="btn btn-primary"
               onclick="prefillCapture('sacrifice for ${esc(g.title).replace(/'/g,"\\'")}')">
               Log sacrifice
@@ -376,21 +356,44 @@ function renderGoalCards(goals) {
   }).join('');
 }
 
-async function logHabit(goalId, btn) {
+async function logHabit(goalId, btn, value) {
   btn.disabled = true;
   try {
-    const res = await fetch(`/v1/goals/${goalId}/habit/log`, { method: 'POST' });
+    const res = await fetch(`/v1/goals/${goalId}/habit/log`, {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify({ value: value ?? 1 }),
+    });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const data = await res.json();
+
     const countEl = document.getElementById(`habit-count-${goalId}`);
     const barEl   = document.getElementById(`habit-bar-${goalId}`);
-    if (countEl) countEl.textContent = data.this_week_count;
-    if (barEl) {
-      const target = parseInt(barEl.closest('.goal-card-body')
-        ?.querySelector('.habit-target')?.textContent?.replace('/', '').trim() || '1', 10);
-      const pct = Math.min(Math.round((data.this_week_count / target) * 100), 100);
-      barEl.style.width = `${pct}%`;
-      barEl.style.background = pct >= 100 ? 'var(--rag-green)' : 'var(--teal)';
+
+    const habitType = data.habit_type || 'count';
+
+    if (habitType === 'consistency') {
+      if (countEl) countEl.textContent = data.streak ?? 0;
+    } else if (habitType === 'duration' || habitType === 'volume') {
+      const displayed = Math.round(data.this_period_sum ?? 0);
+      if (countEl) countEl.textContent = displayed;
+      if (barEl) {
+        const target = parseInt(barEl.closest('.goal-card-body')
+          ?.querySelector('.habit-target')?.textContent?.replace('/', '').trim() || '1', 10);
+        const pct = Math.min(Math.round((displayed / target) * 100), 100);
+        barEl.style.width = `${pct}%`;
+        barEl.style.background = pct >= 100 ? 'var(--rag-green)' : 'var(--teal)';
+      }
+    } else {
+      const count = data.this_period_count ?? data.this_week_count ?? 0;
+      if (countEl) countEl.textContent = count;
+      if (barEl) {
+        const target = parseInt(barEl.closest('.goal-card-body')
+          ?.querySelector('.habit-target')?.textContent?.replace('/', '').trim() || '1', 10);
+        const pct = Math.min(Math.round((count / target) * 100), 100);
+        barEl.style.width = `${pct}%`;
+        barEl.style.background = pct >= 100 ? 'var(--rag-green)' : 'var(--teal)';
+      }
     }
   } catch {
     // silently fail — user can reload
@@ -706,75 +709,350 @@ function renderSacrificePattern(pattern) {
   setHTML('sacrifice-pattern', summary + `<div class="sacrifice-bars">${bars}</div>`);
 }
 
-// ── Add Goal form ─────────────────────────────────────────────────────────────
+// ── Add Goal Wizard ───────────────────────────────────────────────────────────
 
-function toggleAddGoalForm() {
-  const panel = document.getElementById('add-goal-panel');
-  const btn   = document.getElementById('add-goal-btn');
-  if (!panel) return;
-  const opening = panel.classList.contains('hidden');
-  panel.classList.toggle('hidden');
-  if (btn) btn.textContent = opening ? '✕ Cancel' : '+ Add Goal';
-  if (opening) {
-    document.getElementById('new-goal-title')?.focus();
-  } else {
-    document.getElementById('add-goal-form')?.reset();
-    document.getElementById('deadline-group')?.classList.add('hidden');
-    document.getElementById('habit-target-group')?.classList.add('hidden');
+let _wizardTemplates    = null;   // {category_id: {id, label, description, templates}}
+let _wizardCategory     = null;   // selected category id
+let _wizardTemplate     = null;   // selected template object
+let _wizardPreview      = null;   // preview data from server
+
+async function openAddGoalWizard() {
+  const wizard = document.getElementById('add-goal-wizard');
+  const btn    = document.getElementById('add-goal-btn');
+  if (!wizard) return;
+  wizard.classList.remove('hidden');
+  if (btn) btn.textContent = '✕ Cancel';
+  wizardGoTo(1);
+  if (!_wizardTemplates) {
+    try {
+      const d = await apiFetch('/v1/templates');
+      _wizardTemplates = d.categories || {};
+    } catch {
+      _wizardTemplates = {};
+    }
   }
+  _renderWizardCategories();
 }
 
-function handleGoalTypeChange() {
-  const type = document.getElementById('new-goal-type')?.value;
-  const deadlineGroup = document.getElementById('deadline-group');
-  const habitGroup    = document.getElementById('habit-target-group');
+function closeAddGoalWizard() {
+  const wizard = document.getElementById('add-goal-wizard');
+  const btn    = document.getElementById('add-goal-btn');
+  if (wizard) wizard.classList.add('hidden');
+  if (btn) btn.textContent = '+ Add Goal';
+  _wizardCategory = null;
+  _wizardTemplate = null;
+  _wizardPreview  = null;
+}
+
+function wizardGoTo(step) {
+  [1, 2, 3].forEach(n => {
+    const el = document.getElementById(`wizard-step-${n}`);
+    if (el) el.classList.toggle('hidden', n !== step);
+  });
+}
+
+function _renderWizardCategories() {
+  const grid = document.getElementById('wizard-categories');
+  if (!grid || !_wizardTemplates) return;
+
+  const cats = Object.values(_wizardTemplates);
+  const customCard = `
+    <div class="category-card" onclick="wizardSelectCustom()">
+      <div class="category-card-label">Custom</div>
+      <div class="category-card-desc">Freeform goal — define your own type and target.</div>
+    </div>`;
+
+  grid.innerHTML = cats.map(cat => `
+    <div class="category-card" onclick="wizardSelectCategory('${esc(cat.id)}')">
+      <div class="category-card-label">${esc(cat.label)}</div>
+      <div class="category-card-desc">${esc(cat.description || '')}</div>
+    </div>`).join('') + customCard;
+}
+
+function wizardSelectCategory(catId) {
+  _wizardCategory = catId;
+  const cat = _wizardTemplates?.[catId];
+  if (!cat) return;
+
+  document.getElementById('wizard-cat-label').textContent = cat.label;
+
+  const grid = document.getElementById('wizard-templates');
+  grid.innerHTML = (cat.templates || []).map(t => `
+    <div class="template-card" onclick="wizardSelectTemplate('${esc(t.id)}')">
+      <div class="template-card-label">${esc(t.label)}</div>
+      <div class="template-card-desc">${esc(t.description || '')}</div>
+    </div>`).join('');
+
+  wizardGoTo(2);
+}
+
+async function wizardSelectTemplate(templateId) {
+  const cat = _wizardTemplates?.[_wizardCategory];
+  _wizardTemplate = cat?.templates?.find(t => t.id === templateId) || null;
+  if (!_wizardTemplate) return;
+
+  // Fetch preview (suggested range, capability fields) from server
+  _wizardPreview = null;
+  try {
+    const res = await fetch(`/v1/templates/${templateId}/preview`, { method: 'POST' });
+    if (res.ok) _wizardPreview = await res.json();
+  } catch {}
+
+  _renderWizardConfigForm(_wizardTemplate, _wizardPreview);
+  wizardGoTo(3);
+  document.getElementById('wizard-back-3').onclick = () => wizardGoTo(2);
+}
+
+function wizardSelectCustom() {
+  _wizardCategory = 'custom';
+  _wizardTemplate = null;
+  _wizardPreview  = null;
+  _renderWizardConfigForm(null, null);
+  wizardGoTo(3);
+  document.getElementById('wizard-back-3').onclick = () => wizardGoTo(1);
+  document.getElementById('wizard-config-label').textContent = 'Custom goal';
+}
+
+function _renderWizardConfigForm(template, preview) {
+  const label = template
+    ? document.getElementById('wizard-config-label')
+    : document.getElementById('wizard-config-label');
+  if (label && template) label.textContent = template.label;
+
+  const goalType   = template?.goal_type || 'achievement';
+  const isHabit    = goalType === 'habit';
+  const isPerpetual = goalType === 'perpetual';
+  const isAchievement = goalType === 'achievement';
+  const suggestedTitle = template?.suggested_title || '';
+
+  let html = '';
+
+  // Title
+  html += `
+    <div class="form-group">
+      <label class="form-label">Goal name</label>
+      <input type="text" class="form-input" id="wiz-title" required
+             value="${esc(suggestedTitle)}" placeholder="e.g. Run a half marathon">
+    </div>`;
+
+  // Goal type (only for custom)
+  if (!template) {
+    html += `
+      <div class="form-row">
+        <div class="form-group">
+          <label class="form-label">Type</label>
+          <select class="form-select" id="wiz-goal-type" onchange="_wizardCustomTypeChange()">
+            <option value="achievement">Achievement</option>
+            <option value="perpetual">Perpetual</option>
+            <option value="habit">Habit</option>
+          </select>
+        </div>
+      </div>`;
+  }
+
+  // Achievement: end date (prominent)
+  if (isAchievement) {
+    const required = template?.requires_end_date ? 'required' : '';
+    html += `
+      <div class="form-group">
+        <label class="form-label">Race / event date${template?.requires_end_date ? '' : ' <span class="form-optional">(optional)</span>'}</label>
+        <input type="date" class="form-input" id="wiz-target-date" ${required}>
+      </div>`;
+  }
+
+  // Perpetual: target range
+  if (isPerpetual && template) {
+    const min = preview?.suggested_min ?? template.default_min ?? '';
+    const max = preview?.suggested_max ?? template.default_max ?? '';
+    const hasData = preview?.has_data;
+    const note = preview?.note || '';
+    html += `
+      <div class="form-row">
+        <div class="form-group">
+          <label class="form-label">Target minimum</label>
+          <input type="number" class="form-input" id="wiz-target-min" value="${min}" step="0.1">
+          ${hasData ? `<span class="suggested-hint">${esc(note)}</span>` : ''}
+        </div>
+        <div class="form-group">
+          <label class="form-label">Target maximum</label>
+          <input type="number" class="form-input" id="wiz-target-max" value="${max}" step="0.1">
+        </div>
+      </div>`;
+  }
+
+  // Habit fields
+  if (isHabit) {
+    const habitType   = template?.habit_type   || 'count';
+    const habitUnit   = template?.habit_unit   || 'sessions';
+    const habitPeriod = template?.habit_period || 'week';
+    const defaultTarget = template?.default_target || 3;
+
+    const periodLabel = { day: 'per day', week: 'per week', month: 'per month' }[habitPeriod] || '';
+    html += `
+      <div class="form-row">
+        <div class="form-group">
+          <label class="form-label">Target (${esc(habitUnit)} ${esc(periodLabel)})</label>
+          <input type="number" class="form-input" id="wiz-habit-target"
+                 min="1" value="${defaultTarget}">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Type</label>
+          <select class="form-select" id="wiz-habit-type">
+            <option value="count"${habitType === 'count' ? ' selected' : ''}>Count</option>
+            <option value="duration"${habitType === 'duration' ? ' selected' : ''}>Duration</option>
+            <option value="consistency"${habitType === 'consistency' ? ' selected' : ''}>Consistency</option>
+            <option value="volume"${habitType === 'volume' ? ' selected' : ''}>Volume</option>
+          </select>
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label class="form-label">Unit <span class="form-optional">(sessions / mins / steps…)</span></label>
+          <input type="text" class="form-input" id="wiz-habit-unit" value="${esc(habitUnit)}">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Period</label>
+          <select class="form-select" id="wiz-habit-period">
+            <option value="day"${habitPeriod === 'day' ? ' selected' : ''}>Daily</option>
+            <option value="week"${habitPeriod === 'week' ? ' selected' : ''}>Weekly</option>
+            <option value="month"${habitPeriod === 'month' ? ' selected' : ''}>Monthly</option>
+          </select>
+        </div>
+      </div>`;
+  }
+
+  // Capability fields (achievement templates)
+  const capFields = template?.capability_fields || [];
+  if (capFields.length) {
+    html += `<div class="capability-fields">
+      <div class="capability-fields-label">Your current capability (helps personalise milestones)</div>`;
+    capFields.forEach(f => {
+      html += `
+        <div class="form-group" style="margin-bottom:0.5rem">
+          <label class="form-label">${esc(f.label)}</label>
+          <input type="${esc(f.type || 'text')}" class="form-input"
+                 id="wiz-cap-${esc(f.id)}" placeholder="${esc(f.placeholder || '')}">
+        </div>`;
+    });
+    html += `</div>`;
+  }
+
+  // Custom achievement: end date
+  if (!template && goalType !== 'habit' && goalType !== 'perpetual') {
+    html += `
+      <div class="form-group" id="wiz-custom-deadline-group">
+        <label class="form-label">Deadline <span class="form-optional">(optional)</span></label>
+        <input type="date" class="form-input" id="wiz-target-date">
+      </div>`;
+  }
+
+  // Custom perpetual: metric range
+  if (!template) {
+    html += `
+      <div class="form-row hidden" id="wiz-custom-range-group">
+        <div class="form-group">
+          <label class="form-label">Target minimum</label>
+          <input type="number" class="form-input" id="wiz-target-min" step="0.1">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Target maximum</label>
+          <input type="number" class="form-input" id="wiz-target-max" step="0.1">
+        </div>
+      </div>`;
+  }
+
+  // Description
+  html += `
+    <div class="form-group">
+      <label class="form-label">Description <span class="form-optional">(optional)</span></label>
+      <textarea class="form-textarea" id="wiz-description" rows="2"
+                placeholder="What does success look like?"></textarea>
+    </div>`;
+
+  document.getElementById('wizard-config-fields').innerHTML = html;
+}
+
+function _wizardCustomTypeChange() {
+  const type = document.getElementById('wiz-goal-type')?.value;
+  const deadlineGroup = document.getElementById('wiz-custom-deadline-group');
+  const rangeGroup    = document.getElementById('wiz-custom-range-group');
+  const habitRow = document.querySelectorAll('#wizard-config-fields .form-row');
   if (deadlineGroup) deadlineGroup.classList.toggle('hidden', type !== 'achievement');
-  if (habitGroup)    habitGroup.classList.toggle('hidden',    type !== 'habit');
+  if (rangeGroup)    rangeGroup.classList.toggle('hidden',    type !== 'perpetual');
 }
 
-function initAddGoalForm() {
-  const form = document.getElementById('add-goal-form');
+function _initWizardConfigForm() {
+  const form = document.getElementById('wizard-config-form');
   if (!form) return;
-
   form.addEventListener('submit', async (e) => {
     e.preventDefault();
-    const submitBtn = document.getElementById('add-goal-submit');
-    const feedback  = document.getElementById('add-goal-feedback');
-
-    const title          = document.getElementById('new-goal-title').value.trim();
-    const goalType       = document.getElementById('new-goal-type').value;
-    const description    = document.getElementById('new-goal-description').value.trim() || null;
-    const deadlineEl     = document.getElementById('new-goal-deadline');
-    const targetDate     = (goalType === 'achievement' && deadlineEl?.value) ? deadlineEl.value : null;
-    const weeklyTargetEl = document.getElementById('new-goal-weekly-target');
-    const weeklyTarget   = (goalType === 'habit' && weeklyTargetEl?.value)
-      ? parseInt(weeklyTargetEl.value, 10) : null;
-
-    if (!title) return;
-
+    const submitBtn  = document.getElementById('wizard-submit');
+    const feedback   = document.getElementById('wizard-feedback');
     submitBtn.disabled   = true;
     feedback.textContent = '';
 
     try {
+      const template  = _wizardTemplate;
+      const goalType  = template?.goal_type
+        || document.getElementById('wiz-goal-type')?.value
+        || 'achievement';
+
+      const title = document.getElementById('wiz-title')?.value.trim();
+      if (!title) { feedback.textContent = 'Title required.'; submitBtn.disabled = false; return; }
+
+      const description = document.getElementById('wiz-description')?.value.trim() || null;
+
+      const body = { title, goal_type: goalType, description };
+
+      if (template?.id) body.template_id = template.id;
+
+      // Achievement
+      const tdEl = document.getElementById('wiz-target-date');
+      if (tdEl?.value) body.target_date = tdEl.value;
+
+      // Perpetual
+      const minEl = document.getElementById('wiz-target-min');
+      const maxEl = document.getElementById('wiz-target-max');
+      if (minEl?.value !== '') body.target_min = parseFloat(minEl.value);
+      if (maxEl?.value !== '') body.target_max = parseFloat(maxEl.value);
+      if (template?.metric) body.target_metric_type = template.metric;
+
+      // Habit
+      const htEl  = document.getElementById('wiz-habit-type');
+      const huEl  = document.getElementById('wiz-habit-unit');
+      const hpEl  = document.getElementById('wiz-habit-period');
+      const tgtEl = document.getElementById('wiz-habit-target');
+      if (htEl?.value)  body.habit_type   = htEl.value;
+      if (huEl?.value)  body.habit_unit   = huEl.value;
+      if (hpEl?.value)  body.habit_period = hpEl.value;
+      if (tgtEl?.value) body.weekly_target = parseInt(tgtEl.value, 10);
+      if (template?.capture_keywords?.length) body.capture_keywords = template.capture_keywords;
+
+      // Capability fields → append to description
+      const capFields = template?.capability_fields || [];
+      if (capFields.length) {
+        const capLines = capFields
+          .map(f => {
+            const val = document.getElementById(`wiz-cap-${f.id}`)?.value.trim();
+            return val ? `${f.label}: ${val}` : null;
+          })
+          .filter(Boolean);
+        if (capLines.length) {
+          const capNote = 'Capability baseline — ' + capLines.join(', ') + '.';
+          body.description = body.description ? `${body.description} ${capNote}` : capNote;
+        }
+      }
+
       const res = await fetch('/v1/goals', {
         method:  'POST',
         headers: { 'Content-Type': 'application/json' },
-        body:    JSON.stringify({
-          title, goal_type: goalType, description,
-          target_date: targetDate, weekly_target: weeklyTarget,
-        }),
+        body:    JSON.stringify(body),
       });
       if (!res.ok) {
         const err = await res.json().catch(() => ({}));
         throw new Error(err.detail || `HTTP ${res.status}`);
       }
-      // close and reset
-      form.reset();
-      document.getElementById('add-goal-panel').classList.add('hidden');
-      document.getElementById('add-goal-btn').textContent = '+ Add Goal';
-      document.getElementById('deadline-group')?.classList.add('hidden');
-      document.getElementById('habit-target-group')?.classList.add('hidden');
-      // reload list
+      closeAddGoalWizard();
       await loadGoals();
     } catch (err) {
       feedback.textContent = err.message;
@@ -784,10 +1062,111 @@ function initAddGoalForm() {
   });
 }
 
+// ── Habit card rendering (type-aware) ─────────────────────────────────────────
+
+function renderHabitBody(g) {
+  const habitType   = g.habit_type   || 'count';
+  const habitUnit   = g.habit_unit   || 'sessions';
+  const habitPeriod = g.habit_period || 'week';
+  const periodLabel = { day: 'today', week: 'this week', month: 'this month' }[habitPeriod] || 'this period';
+  const target = g.weekly_target || 1;
+
+  if (habitType === 'count') {
+    const count = g.this_period_count ?? g.this_week_count ?? 0;
+    const pct   = Math.min(Math.round((count / target) * 100), 100);
+    return `
+      <div class="habit-progress">
+        <div class="habit-stat">
+          <span class="habit-count" id="habit-count-${g.id}">${count}</span>
+          <span class="habit-target">/ ${target}</span>
+          <span class="habit-unit">${esc(habitUnit)} ${esc(periodLabel)}</span>
+        </div>
+        <div class="progress-track">
+          <div class="progress-fill" id="habit-bar-${g.id}"
+               style="width:${pct}%; background:${pct >= 100 ? 'var(--rag-green)' : 'var(--teal)'}"></div>
+        </div>
+      </div>
+      <div class="goal-actions" style="margin-top:0.5rem">
+        <button class="btn btn-primary" id="habit-log-btn-${g.id}"
+                onclick="logHabit(${g.id}, this, 1)">+1 Done</button>
+      </div>`;
+
+  } else if (habitType === 'duration') {
+    const mins  = Math.round(g.this_period_sum ?? 0);
+    const pct   = Math.min(Math.round((mins / target) * 100), 100);
+    return `
+      <div class="habit-progress">
+        <div class="habit-stat">
+          <span class="habit-count" id="habit-count-${g.id}">${mins}</span>
+          <span class="habit-target">/ ${target}</span>
+          <span class="habit-unit">mins ${esc(periodLabel)}</span>
+        </div>
+        <div class="progress-track">
+          <div class="progress-fill" id="habit-bar-${g.id}"
+               style="width:${pct}%; background:${pct >= 100 ? 'var(--rag-green)' : 'var(--teal)'}"></div>
+        </div>
+      </div>
+      <div class="goal-actions" style="margin-top:0.5rem; display:flex; align-items:center; gap:0.5rem">
+        <input type="number" class="habit-log-value-input" id="habit-duration-${g.id}"
+               placeholder="mins" min="1" value="">
+        <button class="btn btn-primary" id="habit-log-btn-${g.id}"
+                onclick="logHabitValue(${g.id}, this, 'habit-duration-${g.id}')">+ Time</button>
+      </div>`;
+
+  } else if (habitType === 'consistency') {
+    const streak = g.streak ?? 0;
+    return `
+      <div class="habit-progress">
+        <div class="habit-stat">
+          <span class="habit-streak" id="habit-count-${g.id}">${streak}</span>
+          <span class="habit-streak-label">day streak</span>
+        </div>
+      </div>
+      <div class="goal-actions" style="margin-top:0.5rem">
+        <button class="btn btn-primary" id="habit-log-btn-${g.id}"
+                onclick="logHabit(${g.id}, this, 1)">Done today</button>
+      </div>`;
+
+  } else if (habitType === 'volume') {
+    const total = g.this_period_sum ?? 0;
+    const pct   = Math.min(Math.round((total / target) * 100), 100);
+    return `
+      <div class="habit-progress">
+        <div class="habit-stat">
+          <span class="habit-count" id="habit-count-${g.id}">${total}</span>
+          <span class="habit-target">/ ${target}</span>
+          <span class="habit-unit">${esc(habitUnit)} ${esc(periodLabel)}</span>
+        </div>
+        <div class="progress-track">
+          <div class="progress-fill" id="habit-bar-${g.id}"
+               style="width:${pct}%; background:${pct >= 100 ? 'var(--rag-green)' : 'var(--teal)'}"></div>
+        </div>
+      </div>
+      <div class="goal-actions" style="margin-top:0.5rem; display:flex; align-items:center; gap:0.5rem">
+        <input type="number" class="habit-log-value-input" id="habit-volume-${g.id}"
+               placeholder="${esc(habitUnit)}" min="1" value="">
+        <button class="btn btn-primary" id="habit-log-btn-${g.id}"
+                onclick="logHabitValue(${g.id}, this, 'habit-volume-${g.id}')">Log amount</button>
+      </div>`;
+  }
+
+  // fallback
+  const count = g.this_week_count || 0;
+  return `<div class="habit-stat"><span class="habit-count">${count}</span><span class="habit-unit">${esc(periodLabel)}</span></div>`;
+}
+
+async function logHabitValue(goalId, btn, inputId) {
+  const input = document.getElementById(inputId);
+  const val   = parseFloat(input?.value);
+  if (!val || val <= 0) { if (input) input.focus(); return; }
+  await logHabit(goalId, btn, val);
+  if (input) input.value = '';
+}
+
 // ── Init ──────────────────────────────────────────────────────────────────────
 
 document.addEventListener('DOMContentLoaded', () => {
   initCaptureBar();
-  initAddGoalForm();
+  _initWizardConfigForm();
   document.addEventListener('click', closeMsDropdown);
 });

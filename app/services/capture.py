@@ -37,6 +37,30 @@ def match_goal_title(text: str, goals: list) -> Optional[Any]:
     return None
 
 
+def match_goal_by_keywords(text: str, goals: list) -> Optional[Any]:
+    """Return the first goal whose capture_keywords appear in text.
+
+    Keywords are stored as a JSON array in goal.capture_keywords. Each keyword is
+    matched as a whole word (word-boundary). Returns None if no match.
+    """
+    import json as _json
+    low = text.lower()
+    for goal in goals:
+        if not goal.capture_keywords:
+            continue
+        try:
+            keywords = _json.loads(goal.capture_keywords)
+        except (ValueError, TypeError):
+            continue
+        for kw in keywords:
+            if not kw:
+                continue
+            pattern = r"\b" + re.escape(kw.lower()) + r"\b"
+            if re.search(pattern, low):
+                return goal
+    return None
+
+
 def record_progress(db: Session, text: str, goal_id: Optional[int] = None) -> MetricReading:
     """Write a habit_log record for a progress_capture message.
 

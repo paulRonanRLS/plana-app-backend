@@ -196,7 +196,10 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         elif intent == "progress_capture":
             # Always supersede any stale pending capture.
             session_mgr.clear_pending_capture(redis_client)
-            matched = capture_service.match_goal_title(text, active_goals)
+            matched = (
+                capture_service.match_goal_by_keywords(text, active_goals)
+                or capture_service.match_goal_title(text, active_goals)
+            )
             if matched:
                 # Explicit goal title in the message — log immediately, no confirmation needed.
                 capture_service.record_progress(db, text, goal_id=matched.id)

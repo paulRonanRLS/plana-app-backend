@@ -1,0 +1,324 @@
+{
+  "version": "1",
+  "categories": [
+    {
+      "id": "health_foundation",
+      "label": "Health Foundation",
+      "description": "Track daily health metrics from your wearable devices",
+      "templates": [
+        {
+          "id": "sleep_quality",
+          "label": "Sleep Quality",
+          "description": "Maintain a consistent nightly sleep score. Drift detection alerts when you fall below target.",
+          "goal_type": "perpetual",
+          "metric": "sleep_score",
+          "direction": "higher",
+          "default_min": 72,
+          "default_max": 100,
+          "source": "garmin",
+          "suggested_title": "Maintain sleep quality",
+          "target_range_queryable": true
+        },
+        {
+          "id": "sleep_duration",
+          "label": "Sleep Duration",
+          "description": "Maintain a minimum nightly sleep duration. Linked to recovery envelope sizing.",
+          "goal_type": "perpetual",
+          "metric": "sleep_duration_hours",
+          "direction": "higher",
+          "default_min": 7,
+          "default_max": 9,
+          "source": "garmin",
+          "suggested_title": "Maintain sleep duration",
+          "target_range_queryable": true
+        },
+        {
+          "id": "hrv",
+          "label": "Heart Rate Variability",
+          "description": "Track HRV as the primary recovery signal. High confidence indicator of readiness.",
+          "goal_type": "perpetual",
+          "metric": "hrv",
+          "direction": "higher",
+          "default_min": 50,
+          "default_max": 65,
+          "source": "garmin",
+          "suggested_title": "Maintain HRV baseline",
+          "target_range_queryable": true
+        },
+        {
+          "id": "resting_hr",
+          "label": "Resting Heart Rate",
+          "description": "Track resting HR as a recovery and fitness indicator. Lower is better for trained athletes.",
+          "goal_type": "perpetual",
+          "metric": "resting_hr",
+          "direction": "lower",
+          "default_min": 44,
+          "default_max": 58,
+          "source": "garmin",
+          "suggested_title": "Maintain resting heart rate",
+          "target_range_queryable": true
+        },
+        {
+          "id": "body_battery",
+          "label": "Body Battery",
+          "description": "Monitor Garmin body battery as a secondary recovery signal. Used for context, not primary decision-making.",
+          "goal_type": "perpetual",
+          "metric": "body_battery",
+          "direction": "higher",
+          "default_min": 50,
+          "default_max": 100,
+          "source": "garmin",
+          "suggested_title": "Maintain body battery",
+          "target_range_queryable": true
+        },
+        {
+          "id": "stress",
+          "label": "Stress Level",
+          "description": "Track daily stress score. Elevated stress compresses recovery capacity.",
+          "goal_type": "perpetual",
+          "metric": "stress",
+          "direction": "lower",
+          "default_min": 0,
+          "default_max": 35,
+          "source": "garmin",
+          "suggested_title": "Maintain low stress",
+          "target_range_queryable": true
+        }
+      ]
+    },
+    {
+      "id": "training_running",
+      "label": "Training — Running",
+      "description": "Race preparation and running performance goals",
+      "templates": [
+        {
+          "id": "race_5k",
+          "label": "5K Race",
+          "description": "Build toward a 5K target time. Typically 8–12 week preparation arc.",
+          "goal_type": "achievement",
+          "activity_type": "run",
+          "requires_end_date": true,
+          "capability_fields": [
+            {"id": "long_run_km", "label": "Current longest run (km)", "type": "number", "placeholder": "e.g. 5"},
+            {"id": "weekly_volume_km", "label": "Weekly volume (km)", "type": "number", "placeholder": "e.g. 20"},
+            {"id": "avg_pace", "label": "Current avg pace (min/km)", "type": "text", "placeholder": "e.g. 6:30"}
+          ],
+          "milestone_phases": ["Base building", "Speed work", "Taper", "Race day"],
+          "suggested_title": "Run a sub-__ 5K"
+        },
+        {
+          "id": "race_10k",
+          "label": "10K Race",
+          "description": "10K race preparation. Typically 10–14 week arc with tempo work and a long run build.",
+          "goal_type": "achievement",
+          "activity_type": "run",
+          "requires_end_date": true,
+          "capability_fields": [
+            {"id": "long_run_km", "label": "Current longest run (km)", "type": "number", "placeholder": "e.g. 8"},
+            {"id": "weekly_volume_km", "label": "Weekly volume (km)", "type": "number", "placeholder": "e.g. 30"},
+            {"id": "avg_pace", "label": "Current avg pace (min/km)", "type": "text", "placeholder": "e.g. 6:00"}
+          ],
+          "milestone_phases": ["Base building", "Tempo introduction", "Volume peak", "Taper", "Race day"],
+          "suggested_title": "Run a sub-__ 10K"
+        },
+        {
+          "id": "race_half_marathon",
+          "label": "Half Marathon",
+          "description": "Half marathon preparation. 12–18 week arc. Weekly long run builds to 18km.",
+          "goal_type": "achievement",
+          "activity_type": "run",
+          "requires_end_date": true,
+          "capability_fields": [
+            {"id": "long_run_km", "label": "Current longest run (km)", "type": "number", "placeholder": "e.g. 12"},
+            {"id": "weekly_volume_km", "label": "Weekly volume (km)", "type": "number", "placeholder": "e.g. 40"},
+            {"id": "avg_pace", "label": "Current avg pace (min/km)", "type": "text", "placeholder": "e.g. 5:45"}
+          ],
+          "milestone_phases": ["Base building", "Volume peak", "Race pace work", "Taper", "Race day"],
+          "suggested_title": "Run a sub-2:00 half marathon"
+        },
+        {
+          "id": "race_marathon",
+          "label": "Marathon",
+          "description": "Full marathon preparation. 16–20 week arc. Peak week 55–70km depending on target.",
+          "goal_type": "achievement",
+          "activity_type": "run",
+          "requires_end_date": true,
+          "capability_fields": [
+            {"id": "long_run_km", "label": "Current longest run (km)", "type": "number", "placeholder": "e.g. 18"},
+            {"id": "weekly_volume_km", "label": "Weekly volume (km)", "type": "number", "placeholder": "e.g. 50"},
+            {"id": "avg_pace", "label": "Current avg pace (min/km)", "type": "text", "placeholder": "e.g. 5:30"}
+          ],
+          "milestone_phases": ["Aerobic base", "Volume build", "Marathon pace work", "Peak week", "Taper", "Race day"],
+          "suggested_title": "Run a marathon"
+        },
+        {
+          "id": "pace_improvement",
+          "label": "Pace Improvement",
+          "description": "Sustain a target pace range across regular runs. Tracked as a perpetual metric.",
+          "goal_type": "perpetual",
+          "metric": "pace_per_km",
+          "direction": "lower",
+          "default_min": 0,
+          "default_max": 6,
+          "source": "strava",
+          "suggested_title": "Maintain running pace below 6:00/km",
+          "target_range_queryable": false
+        }
+      ]
+    },
+    {
+      "id": "training_cycling",
+      "label": "Training — Cycling",
+      "description": "Cycling events and power-based training goals",
+      "templates": [
+        {
+          "id": "event_sportive",
+          "label": "Sportive / Gran Fondo",
+          "description": "Build toward a cycling event. Focus on long ride endurance and TSS capacity.",
+          "goal_type": "achievement",
+          "activity_type": "ride",
+          "requires_end_date": true,
+          "capability_fields": [
+            {"id": "ftp_watts", "label": "Current FTP (watts)", "type": "number", "placeholder": "e.g. 240"},
+            {"id": "longest_ride_km", "label": "Longest recent ride (km)", "type": "number", "placeholder": "e.g. 80"},
+            {"id": "weekly_tss", "label": "Weekly TSS", "type": "number", "placeholder": "e.g. 280"}
+          ],
+          "milestone_phases": ["Base fitness", "Long ride build", "Event prep", "Taper", "Event day"],
+          "suggested_title": "Complete the __ sportive"
+        },
+        {
+          "id": "event_gran_fondo",
+          "label": "Gran Fondo (100km+)",
+          "description": "Long-distance gran fondo preparation. Typically 150–200km. Requires high aerobic base.",
+          "goal_type": "achievement",
+          "activity_type": "ride",
+          "requires_end_date": true,
+          "capability_fields": [
+            {"id": "ftp_watts", "label": "Current FTP (watts)", "type": "number", "placeholder": "e.g. 260"},
+            {"id": "longest_ride_km", "label": "Longest recent ride (km)", "type": "number", "placeholder": "e.g. 100"},
+            {"id": "weekly_tss", "label": "Weekly TSS", "type": "number", "placeholder": "e.g. 350"}
+          ],
+          "milestone_phases": ["Aerobic base", "Long ride progression", "Climbing work", "Taper", "Event day"],
+          "suggested_title": "Complete the __ gran fondo"
+        },
+        {
+          "id": "ftp_improvement",
+          "label": "FTP Improvement",
+          "description": "Raise your FTP over a training block. Measured by periodic FTP tests.",
+          "goal_type": "perpetual",
+          "metric": "ftp_watts",
+          "direction": "higher",
+          "default_min": 0,
+          "default_max": 400,
+          "source": "manual",
+          "suggested_title": "Improve FTP to __ watts",
+          "target_range_queryable": false
+        }
+      ]
+    },
+    {
+      "id": "training_strength",
+      "label": "Training — Strength",
+      "description": "Strength and movement skill goals",
+      "templates": [
+        {
+          "id": "movement_skill",
+          "label": "Movement Skill",
+          "description": "Progressively build toward a specific movement: handstand, muscle-up, pistol squat, etc.",
+          "goal_type": "achievement",
+          "requires_end_date": true,
+          "capability_fields": [
+            {"id": "current_level", "label": "Current level / starting point", "type": "text", "placeholder": "e.g. Wall handstand 10 sec"},
+            {"id": "training_frequency", "label": "Training days per week", "type": "number", "placeholder": "e.g. 3"}
+          ],
+          "milestone_phases": ["Foundation strength", "Skill progression", "Target movement"],
+          "suggested_title": "Achieve __"
+        },
+        {
+          "id": "lift_target",
+          "label": "Lift Target",
+          "description": "Work toward a specific 1RM or rep target: squat, deadlift, bench press, etc.",
+          "goal_type": "achievement",
+          "requires_end_date": true,
+          "capability_fields": [
+            {"id": "current_max", "label": "Current max / working weight (kg)", "type": "number", "placeholder": "e.g. 80"},
+            {"id": "target_weight", "label": "Target weight (kg)", "type": "number", "placeholder": "e.g. 100"},
+            {"id": "training_frequency", "label": "Training days per week", "type": "number", "placeholder": "e.g. 2"}
+          ],
+          "milestone_phases": ["Technique", "Progressive overload", "Target lift"],
+          "suggested_title": "__ kg __ (lift)"
+        }
+      ]
+    },
+    {
+      "id": "habits",
+      "label": "Habits",
+      "description": "Recurring behaviours tracked by frequency, duration, or volume",
+      "templates": [
+        {
+          "id": "cooking_frequency",
+          "label": "Cooking at Home",
+          "description": "Track how often you cook from scratch. Time with family, nutrition control, cost.",
+          "goal_type": "habit",
+          "habit_type": "count",
+          "habit_unit": "sessions",
+          "habit_period": "week",
+          "default_target": 5,
+          "capture_keywords": ["cooked", "cooking", "made dinner", "meal prep", "home cooking"],
+          "suggested_title": "Cook at home __ times a week"
+        },
+        {
+          "id": "reading",
+          "label": "Reading",
+          "description": "Build a regular reading habit. Track sessions, not pages.",
+          "goal_type": "habit",
+          "habit_type": "count",
+          "habit_unit": "sessions",
+          "habit_period": "week",
+          "default_target": 3,
+          "capture_keywords": ["read", "reading", "finished chapter", "finished book", "started book"],
+          "suggested_title": "Read __ times a week"
+        },
+        {
+          "id": "photography",
+          "label": "Photography",
+          "description": "Regular shooting sessions. Street, portrait, landscape — any active photography counts.",
+          "goal_type": "habit",
+          "habit_type": "count",
+          "habit_unit": "sessions",
+          "habit_period": "week",
+          "default_target": 2,
+          "capture_keywords": ["photo", "shot", "photographed", "street photography", "shooting"],
+          "suggested_title": "Photography __ times a week"
+        },
+        {
+          "id": "creative_writing",
+          "label": "Creative Writing",
+          "description": "Regular writing sessions. Word count optional — showing up is the goal.",
+          "goal_type": "habit",
+          "habit_type": "count",
+          "habit_unit": "sessions",
+          "habit_period": "week",
+          "default_target": 3,
+          "capture_keywords": ["wrote", "writing", "words", "draft", "chapter", "story"],
+          "suggested_title": "Write __ times a week"
+        },
+        {
+          "id": "steps",
+          "label": "Daily Steps",
+          "description": "Daily step count target from Garmin. Auto-captured — no manual logging needed.",
+          "goal_type": "habit",
+          "habit_type": "volume",
+          "habit_unit": "steps",
+          "habit_period": "day",
+          "default_target": 8000,
+          "source": "garmin",
+          "metric": "steps",
+          "auto_capture": true,
+          "capture_keywords": [],
+          "suggested_title": "Walk __ steps a day"
+        }
+      ]
+    }
+  ]
+}
