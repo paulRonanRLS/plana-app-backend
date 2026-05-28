@@ -202,6 +202,21 @@ def _parse_activity(raw: dict) -> dict:
     }
 
 
+def activity_dict_from_rows(rows: list) -> list[dict]:
+    """Extract activity dicts from MetricReading rows for milestone processing.
+
+    Filters to activity-type rows only (tss rows are skipped).
+    Uses the same logic as milestone_progress.activity_dict_from_row.
+    """
+    from app.services.milestone_progress import activity_dict_from_row
+    from app.models.metric_reading import MetricType
+    return [
+        activity_dict_from_row(r)
+        for r in rows
+        if r.metric_type == MetricType.activity
+    ]
+
+
 # ── Public entry point ─────────────────────────────────────────────────────────
 
 def sync_strava(db: Session, days_back: int = 7) -> list[MetricReading]:

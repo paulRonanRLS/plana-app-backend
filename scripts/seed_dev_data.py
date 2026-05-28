@@ -19,7 +19,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from app.database import SessionLocal
 from app.models.goal import Goal, GoalState, GoalType
 from app.models.metric_reading import MetricReading, MetricSource, MetricType
-from app.models.milestone import Milestone, MilestoneState
+from app.models.milestone import Milestone, MilestoneState, ProgressMetric, ProgressPeriod, ProgressType
 from app.services.goal import (
     activate_goal,
     create_goal,
@@ -42,7 +42,12 @@ def _exists(db, title: str) -> bool:
 
 def _add_milestone(db, goal_id: int, title: str, description: str,
                    sequence: int, weeks_out: int,
-                   state: MilestoneState = MilestoneState.pending) -> Milestone:
+                   state: MilestoneState = MilestoneState.pending,
+                   activity_type: str | None = None,
+                   progress_type: ProgressType | None = None,
+                   metric: ProgressMetric | None = None,
+                   target_value: float | None = None,
+                   period: ProgressPeriod | None = None) -> Milestone:
     target = _today() + timedelta(weeks=weeks_out)
     m = Milestone(
         goal_id=goal_id,
@@ -53,6 +58,11 @@ def _add_milestone(db, goal_id: int, title: str, description: str,
         target_date=target,
         created_at=_now(),
         updated_at=_now(),
+        activity_type=activity_type,
+        progress_type=progress_type,
+        metric=metric,
+        target_value=target_value,
+        period=period,
     )
     db.add(m)
     db.commit()
@@ -93,11 +103,21 @@ def seed_goals(db) -> None:
         _add_milestone(db, g.id,
             "Build weekly volume to 45km",
             "Four weeks of consistent training — three runs plus a long run.",
-            sequence=1, weeks_out=6, state=MilestoneState.suggested)
+            sequence=1, weeks_out=6, state=MilestoneState.suggested,
+            activity_type="run",
+            progress_type=ProgressType.cumulative,
+            metric=ProgressMetric.distance_km,
+            target_value=45.0,
+            period=ProgressPeriod.week)
         _add_milestone(db, g.id,
             "Complete 18km long run",
             "Long run at target half-marathon effort (5:35/km). Confidence check.",
-            sequence=2, weeks_out=12)
+            sequence=2, weeks_out=12,
+            activity_type="run",
+            progress_type=ProgressType.single_effort,
+            metric=ProgressMetric.distance_km,
+            target_value=18.0,
+            period=ProgressPeriod.lifetime)
         _add_milestone(db, g.id,
             "Race day: Valencia Half Marathon",
             "Sub-2:00 finish. Splits: 5:40/km for first 10km, 5:30/km for last 11km.",

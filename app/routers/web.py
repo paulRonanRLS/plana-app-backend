@@ -494,8 +494,10 @@ def trigger_garmin_sync(db: Session = Depends(get_db)):
 @router.post("/v1/admin/sync/strava")
 def trigger_strava_sync(db: Session = Depends(get_db)):
     """Manually trigger a Strava sync. Calls the same function as the scheduled job."""
-    from app.ingestion.strava import sync_strava
+    from app.ingestion.strava import sync_strava, activity_dict_from_rows
     from app.core.redis_client import cache_get
+    from app.services.milestone_progress import process_activity
+    from app.bot.outreach import dispatch_milestone_notifications
 
     try:
         rows = sync_strava(db)
@@ -503,6 +505,18 @@ def trigger_strava_sync(db: Session = Depends(get_db)):
         last_sync = cache_get("sync:strava:last_success")
         if not last_sync and rows:
             last_sync = datetime.now(timezone.utc).isoformat()
+
+        all_updates = []
+        for activity in activity_dict_from_rows(rows):
+            try:
+                updates = process_activity(db, activity)
+                all_updates.extend(updates)
+            except Exception as exc:
+                logger.error(f"Manual Strava sync: milestone progress failed: {exc}", exc_info=True)
+        if all_updates:
+            logger.info(f"Manual Strava sync: {len(all_updates)} milestone update(s)")
+            dispatch_milestone_notifications(all_updates)
+
         return {"status": "ok", "records_synced": len(rows), "last_sync": last_sync}
     except Exception as exc:
         logger.error(f"Manual Strava sync failed: {exc}", exc_info=True)

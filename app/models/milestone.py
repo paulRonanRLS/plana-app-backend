@@ -1,7 +1,7 @@
 import enum
 from datetime import datetime, timezone
 
-from sqlalchemy import Column, Integer, String, DateTime, Date, Enum, Text, ForeignKey
+from sqlalchemy import Column, DateTime, Date, Enum, Float, ForeignKey, Integer, String, Text
 from sqlalchemy.orm import relationship
 
 from app.database import Base
@@ -13,6 +13,24 @@ class MilestoneState(str, enum.Enum):
     active = "active"
     achieved = "achieved"
     missed = "missed"
+
+
+class ProgressType(str, enum.Enum):
+    cumulative = "cumulative"      # accumulate metric over a period
+    single_effort = "single_effort"  # single activity must meet target
+
+
+class ProgressMetric(str, enum.Enum):
+    distance_km = "distance_km"
+    duration_min = "duration_min"
+    tss = "tss"
+    count = "count"
+
+
+class ProgressPeriod(str, enum.Enum):
+    week = "week"
+    month = "month"
+    lifetime = "lifetime"
 
 
 class Milestone(Base):
@@ -38,5 +56,13 @@ class Milestone(Base):
         onupdate=lambda: datetime.now(timezone.utc),
     )
     achieved_at = Column(DateTime(timezone=True), nullable=True)
+
+    # Activity progress tracking (all nullable — not all milestones track activities)
+    activity_type = Column(String(50), nullable=True)   # run/ride/swim/walk/any
+    progress_type = Column(Enum(ProgressType), nullable=True)
+    metric = Column(Enum(ProgressMetric), nullable=True)
+    target_value = Column(Float, nullable=True)
+    period = Column(Enum(ProgressPeriod), nullable=True)
+    current_value = Column(Float, nullable=False, default=0.0)
 
     goal = relationship("Goal", back_populates="milestones")

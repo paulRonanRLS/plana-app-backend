@@ -3,6 +3,13 @@ import sys
 from contextlib import asynccontextmanager
 from pathlib import Path
 
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s %(levelname)-8s %(name)s — %(message)s",
+    datefmt="%Y-%m-%d %H:%M:%S",
+    stream=sys.stdout,
+)
+
 import tomllib
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware

@@ -46,7 +46,9 @@ def _garmin_job() -> None:
 
 def _strava_job() -> None:
     """Scheduled wrapper around strava.sync_strava — creates its own DB session."""
-    from app.ingestion.strava import sync_strava
+    from app.ingestion.strava import sync_strava, activity_dict_from_rows
+    from app.services.milestone_progress import process_activity
+    from app.bot.outreach import dispatch_milestone_notifications
     db = SessionLocal()
     try:
         rows = sync_strava(db)
@@ -54,6 +56,17 @@ def _strava_job() -> None:
             logger.info(f"Strava job: stored {len(rows)} rows")
         else:
             logger.debug("Strava job: no new activities")
+            return
+        all_updates = []
+        for row in activity_dict_from_rows(rows):
+            try:
+                updates = process_activity(db, row)
+                all_updates.extend(updates)
+            except Exception as exc:
+                logger.error(f"Strava job: milestone progress failed for activity: {exc}", exc_info=True)
+        if all_updates:
+            logger.info(f"Strava job: {len(all_updates)} milestone update(s)")
+            dispatch_milestone_notifications(all_updates)
     except Exception as exc:
         logger.error(f"Strava job failed: {exc}", exc_info=True)
     finally:

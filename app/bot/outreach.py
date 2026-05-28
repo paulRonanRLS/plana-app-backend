@@ -58,3 +58,66 @@ async def send_fade_alert(bot, chat_id: int, goal, fade_event) -> None:
     )
     await bot.send_message(chat_id=chat_id, text=text)
     logger.info(f"Fade alert sent for goal {goal.id} ({fade_event.days_since_activity}d inactive)")
+
+
+def _format_metric_value(value: float, metric: str) -> str:
+    if metric == "distance_km":
+        return f"{value:.1f}km"
+    if metric == "duration_min":
+        return f"{value:.0f}min"
+    if metric == "tss":
+        return f"{value:.0f} TSS"
+    if metric == "count":
+        return f"{value:.0f}"
+    return str(value)
+
+
+def _format_period_label(period: str) -> str:
+    return {"week": "Weekly", "month": "Monthly", "lifetime": "Total"}.get(period, period.capitalize())
+
+
+async def send_milestone_progress(bot, chat_id: int, update) -> None:
+    """Notify user of milestone progress after an activity is logged."""
+    activity_label = update.activity_type.capitalize()
+    metric_str = _format_metric_value(update.metric_value, update.metric)
+
+    if update.achieved:
+        text = (
+            f"{activity_label} logged — {metric_str}. "
+            f"Milestone achieved: {update.milestone_title}."
+        )
+    else:
+        current_str = _format_metric_value(update.current_value, update.metric)
+        target_str = _format_metric_value(update.target_value, update.metric)
+        period_label = _format_period_label(update.period)
+        text = (
+            f"{activity_label} logged — {metric_str}. "
+            f"{period_label} {update.metric.replace('_', ' ')}: "
+            f"{current_str} / {target_str}."
+        )
+
+    await bot.send_message(chat_id=chat_id, text=text)
+    logger.info(f"Milestone progress sent: milestone={update.milestone_id} achieved={update.achieved}")
+
+
+def dispatch_milestone_notifications(updates: list) -> None:
+    """Send Telegram progress notifications from a synchronous context.
+
+    No-ops when TELEGRAM_ENABLED=false or TELEGRAM_CHAT_ID is not set.
+    """
+    import asyncio
+    from app.config import get_settings
+    settings = get_settings()
+    if not (settings.telegram_enabled and settings.telegram_bot_token and settings.telegram_chat_id):
+        return
+    if not updates:
+        return
+
+    from telegram import Bot
+
+    async def _send() -> None:
+        async with Bot(token=settings.telegram_bot_token) as bot:
+            for upd in updates:
+                await send_milestone_progress(bot, settings.telegram_chat_id, upd)
+
+    asyncio.run(_send())
