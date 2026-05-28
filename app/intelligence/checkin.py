@@ -8,6 +8,7 @@ calling from an async context (e.g. the Telegram handler).
 """
 
 import logging
+from datetime import datetime, timezone
 from typing import Optional
 
 from app.models.goal import GoalState
@@ -23,6 +24,87 @@ _STUB = (
     "Good, neutral, or flat?"
 )
 
+_GARMIN_METRIC_TYPES = frozenset({
+    "sleep_score",
+    "sleep_duration_hours",
+    "hrv",
+    "resting_hr",
+    "body_battery",
+    "stress",
+})
+
+# Display order and labels for the system prompt
+_METRIC_LABELS: dict[str, str] = {
+    "sleep_score":          "Sleep score",
+    "sleep_duration_hours": "Sleep duration",
+    "hrv":                  "HRV",
+    "resting_hr":           "Resting HR",
+    "body_battery":         "Body battery",
+    "stress":               "Stress",
+}
+
+_METRIC_UNITS: dict[str, str] = {
+    "sleep_score":          "/100",
+    "sleep_duration_hours": "h",
+    "hrv":                  " ms",
+    "resting_hr":           " bpm",
+    "body_battery":         "/100",
+    "stress":               "/100",
+}
+
+_METRIC_DECIMALS: dict[str, int] = {
+    "sleep_score":          0,
+    "sleep_duration_hours": 1,
+    "hrv":                  0,
+    "resting_hr":           0,
+    "body_battery":         0,
+    "stress":               0,
+}
+
+
+def _query_today_garmin(db) -> dict[str, float]:
+    """Return today's Garmin MetricReadings as {metric_type_str: value}.
+
+    Queries only the six overnight metrics. Returns an empty dict when no
+    Garmin data has been ingested yet today or when db is None.
+    """
+    if db is None:
+        return {}
+    try:
+        from app.models.metric_reading import MetricReading, MetricSource, MetricType
+
+        start_of_day = datetime.now(timezone.utc).replace(
+            hour=0, minute=0, second=0, microsecond=0
+        )
+        target_types = [MetricType(t) for t in _GARMIN_METRIC_TYPES]
+        rows = (
+            db.query(MetricReading)
+            .filter(
+                MetricReading.source == MetricSource.garmin,
+                MetricReading.timestamp >= start_of_day,
+                MetricReading.metric_type.in_(target_types),
+                MetricReading.value.isnot(None),
+            )
+            .all()
+        )
+        return {r.metric_type.value: r.value for r in rows}
+    except Exception as exc:
+        logger.warning(f"Garmin readings query failed: {exc}")
+        return {}
+
+
+def _format_garmin_readings(readings: dict[str, float]) -> list[str]:
+    """Format readings dict into labelled lines, in canonical display order."""
+    lines = []
+    for key, label in _METRIC_LABELS.items():
+        val = readings.get(key)
+        if val is None:
+            continue
+        decimals = _METRIC_DECIMALS[key]
+        unit = _METRIC_UNITS[key]
+        lines.append(f"  {label}: {val:.{decimals}f}{unit}")
+    return lines
+
 
 def build_system_prompt(
     goals: list,
@@ -32,11 +114,12 @@ def build_system_prompt(
     time_ratio: Optional[float] = None,
     recovery_ratio: Optional[float] = None,
     attention_count: Optional[int] = None,
+    garmin_readings: Optional[dict[str, float]] = None,
 ) -> str:
     """Build a context-rich system prompt for the morning check-in.
 
-    Injects goal state and current resource capacity so Claude can reference
-    actual numbers when probing physical and mental state.
+    Injects goal state, current resource capacity, and today's Garmin
+    readings so Claude can reference actual numbers during the check-in.
     """
     active = [g for g in goals if g.state not in TERMINAL_STATES]
     primacy = next((g for g in active if g.state == GoalState.primacy), None)
@@ -90,6 +173,16 @@ def build_system_prompt(
             lines.append(f"  Attention load: {attention_count} open items")
         lines.append("")
 
+    if garmin_readings:
+        reading_lines = _format_garmin_readings(garmin_readings)
+        if reading_lines:
+            lines.append(
+                "Today's Garmin readings retrieved from the database "
+                "(accurate — reference them directly when the user asks):"
+            )
+            lines.extend(reading_lines)
+            lines.append("")
+
     return "\n".join(lines)
 
 
@@ -103,6 +196,7 @@ def build_response(
     time_ratio: Optional[float] = None,
     recovery_ratio: Optional[float] = None,
     attention_count: Optional[int] = None,
+    db=None,
 ) -> str:
     """Generate a contextual morning check-in response.
 
@@ -112,6 +206,8 @@ def build_response(
     if client is None:
         return _STUB
 
+    garmin_readings = _query_today_garmin(db)
+
     system = build_system_prompt(
         goals,
         time_envelope_hours=time_envelope_hours,
@@ -119,6 +215,7 @@ def build_response(
         time_ratio=time_ratio,
         recovery_ratio=recovery_ratio,
         attention_count=attention_count,
+        garmin_readings=garmin_readings,
     )
 
     try:

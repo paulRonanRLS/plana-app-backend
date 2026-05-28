@@ -233,6 +233,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
                         time_ratio=tension.time_ratio,
                         recovery_ratio=tension.recovery_ratio,
                         attention_count=tension.attention_count,
+                        db=db,
                     )
                 elif intent == "activity_query":
                     start, end = parse_date_reference(text)
