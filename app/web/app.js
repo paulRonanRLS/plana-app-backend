@@ -129,21 +129,23 @@ function renderPerpetualGoals(goals) {
     return;
   }
   const trendGlyph = { up: '↑', down: '↓', flat: '→' };
-  setHTML('perpetual-goals', goals.map(g => {
+  setHTML('perpetual-goals', `<div class="metric-grid">${goals.map(g => {
     const val   = g.current_value != null ? g.current_value : '—';
     const range = (g.target_min != null || g.target_max != null)
-      ? `target ${g.target_min ?? '—'} – ${g.target_max ?? '—'}` : '';
+      ? `${g.target_min ?? '—'} – ${g.target_max ?? '—'}` : null;
     const trendHtml = g.trend
       ? `<span class="trend-arrow trend-${g.trend}">${trendGlyph[g.trend] || ''}</span>`
       : '';
     return `
-      <div class="metric-row">
-        <span class="rag-dot ${ragClass(g.rag)}"></span>
-        <span class="metric-name">${esc(g.title)}</span>
-        <span class="metric-value">${val}${trendHtml}</span>
-        ${range ? `<span class="metric-range">${esc(range)}</span>` : ''}
+      <div class="metric-card">
+        <div class="metric-card-header">
+          <span class="rag-dot ${ragClass(g.rag)}"></span>
+          <span class="metric-card-name">${esc(g.title)}</span>
+        </div>
+        <div class="metric-card-value">${val}${trendHtml}</div>
+        ${range ? `<div class="metric-card-range">target ${esc(range)}</div>` : ''}
       </div>`;
-  }).join(''));
+  }).join('')}</div>`);
 }
 
 function renderThisWeekMilestones(milestones) {
@@ -652,7 +654,11 @@ async function saveNewMilestone(goalId, btn) {
 
 async function loadReflection() {
   try {
-    const d = await apiFetch('/v1/reflection');
+    const [d, traj] = await Promise.all([
+      apiFetch('/v1/reflection'),
+      apiFetch('/v1/reflection/trajectory').catch(() => ({ goals: [] })),
+    ]);
+    renderTrajectory(traj.goals || []);
     renderMemoirList('completed-goals', d.completed || []);
     renderMemoirList('released-goals',  d.released  || []);
     renderSacrificePattern(d.sacrifice_pattern || {});
@@ -660,6 +666,57 @@ async function loadReflection() {
     document.querySelector('main').innerHTML =
       `<div class="error-state">Failed to load: ${esc(err.message)}</div>`;
   }
+}
+
+function renderTrajectory(goals) {
+  if (!goals.length) {
+    setHTML('trajectory-goals', '<div class="empty-state">No active achievement goals.</div>');
+    return;
+  }
+  const statusClass = {
+    'Ahead':    'status-ahead',
+    'On Track': 'status-on-track',
+    'Behind':   'status-behind',
+    'No data':  'status-no-data',
+  };
+  setHTML('trajectory-goals', goals.map(g => {
+    const daysText = g.days_remaining >= 0
+      ? `${g.days_remaining}d remaining`
+      : `${Math.abs(g.days_remaining)}d overdue`;
+
+    const trend  = g.weekly_activity_trend || [];
+    const maxVal = Math.max(1, ...trend);
+    const barHtml = trend.length ? `
+      <div class="traj-bars">${trend.map((v, i) => {
+        const heightPct = Math.max(2, Math.round((v / maxVal) * 100));
+        const cls = i === trend.length - 1 ? 'traj-bar traj-bar-current' : 'traj-bar';
+        return `<div class="traj-bar-wrap" title="Week ${i + 1}: ${v} activities">
+          <div class="${cls}" style="height:${heightPct}%"></div>
+        </div>`;
+      }).join('')}</div>` : '';
+
+    const ms = g.current_milestone;
+    const msHtml = ms ? `
+      <div class="traj-milestone">
+        <span class="milestone-state ${esc(ms.state)}"></span>
+        <span class="traj-ms-text">${esc(ms.title)}</span>
+        ${ms.target_value ? `<span class="traj-ms-progress">${(ms.current_value || 0).toFixed(1)} / ${ms.target_value}</span>` : ''}
+      </div>` : '';
+
+    return `
+      <div class="traj-card">
+        <div class="traj-header">
+          <span class="traj-title">${esc(g.title)}</span>
+          <span class="traj-status ${statusClass[g.status] || 'status-no-data'}">${esc(g.status)}</span>
+        </div>
+        <div class="traj-meta">
+          ${g.target_date ? `<span>${fmtDate(g.target_date)}</span>` : ''}
+          <span class="traj-days">${daysText}</span>
+        </div>
+        ${barHtml}
+        ${msHtml}
+      </div>`;
+  }).join(''));
 }
 
 function renderMemoirList(id, goals) {

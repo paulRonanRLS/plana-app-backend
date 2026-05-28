@@ -298,6 +298,139 @@ def get_now(db: Session = Depends(get_db)):
     }
 
 
+@router.get("/v1/reflection/trajectory")
+def get_trajectory(db: Session = Depends(get_db)):
+    """Active achievement goals with trajectory — status, 4-week activity trend, current milestone."""
+    goals = (
+        db.query(Goal)
+        .filter(
+            Goal.state.notin_(list(TERMINAL_STATES)),
+            Goal.goal_type == GoalType.achievement,
+            Goal.target_date.isnot(None),
+        )
+        .order_by(Goal.target_date.asc())
+        .all()
+    )
+
+    today = date.today()
+    four_weeks_ago = datetime.now(timezone.utc) - timedelta(weeks=4)
+
+    # One query for all activities in the last 4 weeks
+    all_activities = (
+        db.query(MetricReading)
+        .filter(
+            MetricReading.metric_type == MetricType.activity,
+            MetricReading.source == MetricSource.strava,
+            MetricReading.timestamp >= four_weeks_ago,
+        )
+        .all()
+    )
+    all_tss = (
+        db.query(MetricReading)
+        .filter(
+            MetricReading.metric_type == MetricType.tss,
+            MetricReading.source == MetricSource.strava,
+            MetricReading.timestamp >= four_weeks_ago,
+        )
+        .all()
+    )
+
+    # Build ISO week keys for the last 4 complete/current weeks
+    def _week_keys() -> list[tuple[int, int]]:
+        keys = []
+        for w in range(3, -1, -1):
+            d = today - timedelta(weeks=w)
+            keys.append(d.isocalendar()[:2])
+        return keys
+
+    week_keys = _week_keys()
+
+    def _weekly_activity_counts() -> list[int]:
+        counts = {k: 0 for k in week_keys}
+        for a in all_activities:
+            ts = a.timestamp
+            if ts.tzinfo is None:
+                ts = ts.replace(tzinfo=timezone.utc)
+            key = ts.date().isocalendar()[:2]
+            if key in counts:
+                counts[key] += 1
+        return [counts[k] for k in week_keys]
+
+    def _weekly_tss_totals() -> list[float]:
+        totals = {k: 0.0 for k in week_keys}
+        for r in all_tss:
+            ts = r.timestamp
+            if ts.tzinfo is None:
+                ts = ts.replace(tzinfo=timezone.utc)
+            key = ts.date().isocalendar()[:2]
+            if key in totals:
+                totals[key] += r.value or 0.0
+        return [totals[k] for k in week_keys]
+
+    activity_counts = _weekly_activity_counts()
+    tss_totals = _weekly_tss_totals()
+    actual_activity_avg = sum(activity_counts) / 4
+    actual_tss_avg = sum(tss_totals) / 4
+
+    result = []
+    for g in goals:
+        days_remaining = (g.target_date - today).days
+
+        # Status: compare actual training load to committed
+        has_activity = any(v > 0 for v in activity_counts)
+        if g.weekly_tss and actual_tss_avg > 0:
+            pct = actual_tss_avg / g.weekly_tss
+        elif g.weekly_time_hours and actual_activity_avg > 0:
+            required = max(1.0, g.weekly_time_hours / 1.5)
+            pct = actual_activity_avg / required
+        elif has_activity:
+            pct = 1.0  # activity present, no committed baseline → assume on track
+        else:
+            pct = None
+
+        if pct is None:
+            status = "No data"
+        elif pct >= 1.1:
+            status = "Ahead"
+        elif pct >= 0.7:
+            status = "On Track"
+        else:
+            status = "Behind"
+
+        # Current milestone (first pending/active, ordered by sequence)
+        pending = sorted(
+            [m for m in g.milestones if m.state in (
+                MilestoneState.suggested, MilestoneState.pending, MilestoneState.active
+            )],
+            key=lambda m: m.sequence,
+        )
+        ms = pending[0] if pending else None
+        milestone_data = None
+        if ms:
+            milestone_data = {
+                "id": ms.id,
+                "title": ms.title,
+                "state": ms.state.value,
+                "current_value": ms.current_value if ms.target_value else None,
+                "target_value": ms.target_value,
+                "target_date": str(ms.target_date) if ms.target_date else None,
+            }
+
+        result.append({
+            "id": g.id,
+            "title": g.title,
+            "state": g.state.value,
+            "target_date": str(g.target_date),
+            "days_remaining": days_remaining,
+            "status": status,
+            "weekly_activity_trend": activity_counts,
+            "weekly_tss_trend": [round(v, 1) for v in tss_totals],
+            "current_milestone": milestone_data,
+        })
+
+    return {"goals": result}
+
+
 @router.get("/v1/goals/summary")
 def get_goals_summary(db: Session = Depends(get_db)):
     goals = (

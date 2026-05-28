@@ -58,6 +58,40 @@ def _check_redis() -> None:
     logger.info("Startup check: Redis connected")
 
 
+def _startup_garmin_catchup() -> None:
+    """Sync Garmin data on startup if today's readings are missing and it's past 06:00 local."""
+    if datetime.now().hour < 6:
+        logger.info("Startup: Garmin catch-up skipped (before 06:00)")
+        return
+
+    from app.database import SessionLocal
+    from app.models.metric_reading import MetricReading, MetricSource
+
+    db = SessionLocal()
+    try:
+        today_start = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
+        count = (
+            db.query(MetricReading)
+            .filter(
+                MetricReading.source == MetricSource.garmin,
+                MetricReading.timestamp >= today_start,
+            )
+            .count()
+        )
+        if count > 0:
+            logger.info(f"Startup: Garmin data present ({count} readings today) — no catch-up needed")
+            return
+
+        logger.info("Startup: No today's Garmin data — triggering catch-up sync")
+        from app.ingestion.garmin import sync_garmin
+        rows = sync_garmin(db)
+        logger.info(f"Startup: Garmin catch-up synced {len(rows)} readings")
+    except Exception as exc:
+        logger.error(f"Startup: Garmin catch-up failed: {exc}", exc_info=True)
+    finally:
+        db.close()
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     settings = get_settings()
@@ -69,6 +103,10 @@ async def lifespan(app: FastAPI):
         sys.exit(1)
 
     _check_redis()
+
+    # ── Garmin startup catch-up ────────────────────────────────────────────────
+    if get_settings().garmin_enabled:
+        _startup_garmin_catchup()
 
     # ── Ingestion scheduler ────────────────────────────────────────────────────
     from app.ingestion.scheduler import create_scheduler

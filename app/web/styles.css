@@ -64,7 +64,7 @@ body {
 
 .navbar a:hover { color: #fff; background: rgba(255,255,255,0.07); }
 .navbar a.active { color: #fff; border-bottom: 2px solid var(--teal); }
-.navbar a.disabled { opacity: 0.35; pointer-events: none; }
+.navbar a.disabled { opacity: 0.35; cursor: default; }
 
 /* ── Layout ──────────────────────────────────────────────────────────────── */
 
@@ -102,7 +102,56 @@ main {
 
 .section-body { padding: 1rem 1.25rem; }
 
-/* ── Metric rows (State of the Union) ────────────────────────────────────── */
+/* ── Metric grid (State of the Union) ───────────────────────────────────── */
+
+.metric-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 0.75rem;
+}
+
+@media (max-width: 480px) {
+  .metric-grid { grid-template-columns: 1fr; }
+}
+
+.metric-card {
+  background: var(--light-grey);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 0.75rem 1rem;
+}
+
+.metric-card-header {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.4rem;
+}
+
+.metric-card-name {
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  flex: 1;
+}
+
+.metric-card-value {
+  font-size: 1.75rem;
+  font-weight: 700;
+  color: var(--navy);
+  font-variant-numeric: tabular-nums;
+  line-height: 1.1;
+  margin-bottom: 0.2rem;
+}
+
+.metric-card-range {
+  font-size: 0.72rem;
+  color: var(--text-secondary);
+}
+
+/* ── Metric rows (fallback / legacy) ─────────────────────────────────────── */
 
 .metric-row {
   display: flex;
@@ -957,6 +1006,102 @@ div.ms-container:last-of-type { border-bottom: none; }
   font-size: 0.75rem;
   color: var(--text-secondary);
   margin-left: 0.15rem;
+}
+
+/* ── Trajectory cards (Reflection view) ─────────────────────────────────── */
+
+.traj-card {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 0.875rem 1rem;
+  margin-bottom: 0.75rem;
+  background: var(--white);
+}
+.traj-card:last-child { margin-bottom: 0; }
+
+.traj-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 0.35rem;
+}
+
+.traj-title {
+  font-weight: 600;
+  font-size: 0.9rem;
+  flex: 1;
+  margin-right: 0.75rem;
+}
+
+.traj-status {
+  font-size: 0.65rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  padding: 0.15rem 0.45rem;
+  border-radius: 999px;
+  flex-shrink: 0;
+}
+.status-ahead    { background: var(--rag-green); color: #fff; }
+.status-on-track { background: var(--teal);      color: #fff; }
+.status-behind   { background: var(--rag-amber); color: #fff; }
+.status-no-data  { background: var(--light-grey); color: var(--text-secondary); border: 1px solid var(--border); }
+
+.traj-meta {
+  display: flex;
+  gap: 0.75rem;
+  font-size: 0.78rem;
+  color: var(--text-secondary);
+  margin-bottom: 0.625rem;
+}
+
+.traj-days { font-weight: 500; }
+
+.traj-bars {
+  display: flex;
+  align-items: flex-end;
+  gap: 3px;
+  height: 36px;
+  margin-bottom: 0.625rem;
+}
+
+.traj-bar-wrap {
+  flex: 1;
+  height: 100%;
+  display: flex;
+  align-items: flex-end;
+}
+
+.traj-bar {
+  width: 100%;
+  background: var(--light-blue);
+  border-radius: 2px 2px 0 0;
+  min-height: 2px;
+}
+
+.traj-bar-current { background: var(--teal); }
+
+.traj-milestone {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.8rem;
+  padding-top: 0.5rem;
+  border-top: 1px solid var(--border);
+  margin-top: 0.25rem;
+}
+
+.traj-ms-text {
+  flex: 1;
+  color: var(--text-secondary);
+}
+
+.traj-ms-progress {
+  font-variant-numeric: tabular-nums;
+  font-size: 0.75rem;
+  color: var(--navy);
+  font-weight: 600;
+  white-space: nowrap;
 }
 
 /* ── Utility ─────────────────────────────────────────────────────────────── */
