@@ -192,6 +192,102 @@ def _snap(s) -> dict:
     }
 
 
+# ── Now view helpers ──────────────────────────────────────────────────────────
+
+_METRIC_UNITS: dict[str, str] = {
+    "hrv": "ms",
+    "sleep_score": "",
+    "sleep_duration_hours": "h",
+    "resting_hr": "bpm",
+    "body_battery": "",
+    "stress": "",
+    "weight": "kg",
+}
+
+_SPORT_TYPE_MAP: dict[str, str] = {
+    "run": "run", "trail run": "run", "virtual run": "run",
+    "ride": "ride", "virtual ride": "ride", "gravel ride": "ride",
+    "mountain bike ride": "ride", "e-bike ride": "ride",
+    "swim": "swim", "open water swimming": "swim",
+    "walk": "walk", "hike": "walk",
+    "weight training": "strength", "workout": "strength",
+    "crossfit": "strength", "yoga": "strength",
+}
+
+
+def _to_sport_type(activity_type: str) -> str:
+    return _SPORT_TYPE_MAP.get((activity_type or "").lower(), "other")
+
+
+def _today_garmin_reading(db: Session, metric_type: MetricType) -> Optional[float]:
+    today_start = datetime.combine(date.today(), datetime.min.time()).replace(tzinfo=timezone.utc)
+    row = (
+        db.query(MetricReading)
+        .filter(
+            MetricReading.metric_type == metric_type,
+            MetricReading.source == MetricSource.garmin,
+            MetricReading.timestamp >= today_start,
+            MetricReading.value.isnot(None),
+        )
+        .order_by(MetricReading.timestamp.desc())
+        .first()
+    )
+    return row.value if row else None
+
+
+def _reading_on_date(db: Session, metric_type: MetricType, d: date) -> Optional[float]:
+    start = datetime.combine(d, datetime.min.time()).replace(tzinfo=timezone.utc)
+    end = start + timedelta(days=1)
+    row = (
+        db.query(MetricReading)
+        .filter(
+            MetricReading.metric_type == metric_type,
+            MetricReading.timestamp >= start,
+            MetricReading.timestamp < end,
+            MetricReading.value.isnot(None),
+        )
+        .order_by(MetricReading.timestamp.desc())
+        .first()
+    )
+    return row.value if row else None
+
+
+def _ninety_day_avg(db: Session, metric_type: MetricType) -> Optional[float]:
+    cutoff = datetime.now(timezone.utc) - timedelta(days=90)
+    rows = (
+        db.query(MetricReading)
+        .filter(
+            MetricReading.metric_type == metric_type,
+            MetricReading.timestamp >= cutoff,
+            MetricReading.value.isnot(None),
+        )
+        .all()
+    )
+    if not rows:
+        return None
+    return sum(r.value for r in rows) / len(rows)
+
+
+def _compute_general_condition(
+    sleep_score: Optional[float],
+    body_battery: Optional[float],
+    hrv: Optional[float],
+    hrv_avg_90d: Optional[float],
+) -> str:
+    if sleep_score is None and body_battery is None and hrv is None:
+        return "No data yet"
+    if (sleep_score is not None and sleep_score < 50) or \
+       (body_battery is not None and body_battery < 20) or \
+       (hrv is not None and hrv_avg_90d is not None and hrv < hrv_avg_90d * 0.85):
+        return "Depleted"
+    sleep_ok   = sleep_score  is None or sleep_score  >= 65
+    battery_ok = body_battery is None or body_battery >= 40
+    hrv_ok     = hrv is None or hrv_avg_90d is None or hrv >= hrv_avg_90d * 0.95
+    if sleep_ok and battery_ok and hrv_ok:
+        return "Restored"
+    return "Carrying Load"
+
+
 @router.get("/")
 def root_redirect():
     return RedirectResponse(url="/web/index.html")
@@ -278,23 +374,163 @@ def get_now(db: Session = Depends(get_db)):
 
     tension = get_resource_tension(db)
     three_week = get_three_week_view(db)
-    te = tension.time_envelope_hours or 1
-    re = tension.recovery_envelope_tss or 1
+
+    resources_dict = {
+        "time_pct": round(tension.time_ratio * 100, 1),
+        "recovery_pct": round(tension.recovery_ratio * 100, 1),
+        "attention_count": tension.attention_count,
+        "three_week": {
+            "last_week": _snap(three_week.last_week),
+            "this_week": _snap(three_week.this_week),
+            "next_week": _snap(three_week.next_week),
+        },
+    }
+
+    # ── General condition ────────────────────────────────────────────────────
+    sleep_today   = _today_garmin_reading(db, MetricType.sleep_score)
+    battery_today = _today_garmin_reading(db, MetricType.body_battery)
+    hrv_today     = _today_garmin_reading(db, MetricType.hrv)
+    hrv_avg       = _ninety_day_avg(db, MetricType.hrv)
+    general_condition = _compute_general_condition(
+        sleep_today, battery_today, hrv_today, hrv_avg
+    )
+
+    # ── Health metrics (perpetual goals with readings) ───────────────────────
+    health_metrics = []
+    for g in perpetual:
+        if not g.target_metric_type:
+            continue
+        try:
+            mt = MetricType(g.target_metric_type)
+        except ValueError:
+            continue
+        current, _ = _latest_two_metric_values(db, g.target_metric_type)
+        if current is None:
+            continue
+        today_val = _reading_on_date(db, mt, today)
+        yest_val  = _reading_on_date(db, mt, today - timedelta(days=1))
+        health_metrics.append({
+            "metric_name": g.title,
+            "current_value": current,
+            "target_min": g.target_min,
+            "target_max": g.target_max,
+            "trend": _trend(today_val, yest_val),
+            "rag": _rag(current, g.target_min, g.target_max),
+            "unit": _METRIC_UNITS.get(g.target_metric_type, ""),
+        })
+
+    # ── Activities this week ─────────────────────────────────────────────────
+    week_start_dt, _ = _week_datetime_bounds()
+    strava_acts = (
+        db.query(MetricReading)
+        .filter(
+            MetricReading.metric_type == MetricType.activity,
+            MetricReading.source == MetricSource.strava,
+            MetricReading.timestamp >= week_start_dt,
+        )
+        .order_by(MetricReading.timestamp.asc())
+        .all()
+    )
+    activities_this_week = []
+    for a in strava_acts:
+        try:
+            notes = json.loads(a.notes) if a.notes else {}
+        except (json.JSONDecodeError, TypeError):
+            notes = {}
+        at       = notes.get("type", a.text_value or "")
+        dist     = notes.get("distance_km")
+        tss_val  = notes.get("tss")
+        ts = a.timestamp
+        if ts.tzinfo is None:
+            ts = ts.replace(tzinfo=timezone.utc)
+        activities_this_week.append({
+            "sport_type":   _to_sport_type(at),
+            "distance_km":  round(dist, 1) if dist is not None else None,
+            "tss":          round(tss_val) if tss_val is not None else None,
+            "day_name":     ts.strftime("%A"),
+            "timestamp":    ts.isoformat(),
+        })
+
+    # ── Goals snapshot ───────────────────────────────────────────────────────
+    four_weeks_ago = datetime.now(timezone.utc) - timedelta(weeks=4)
+    _tss_4wk = (
+        db.query(MetricReading)
+        .filter(
+            MetricReading.metric_type == MetricType.tss,
+            MetricReading.source == MetricSource.strava,
+            MetricReading.timestamp >= four_weeks_ago,
+        )
+        .all()
+    )
+    _act_count_4wk = (
+        db.query(MetricReading)
+        .filter(
+            MetricReading.metric_type == MetricType.activity,
+            MetricReading.source == MetricSource.strava,
+            MetricReading.timestamp >= four_weeks_ago,
+        )
+        .count()
+    )
+    _avg_tss_4wk = sum(r.value or 0 for r in _tss_4wk) / 4
+    _avg_act_4wk = _act_count_4wk / 4
+
+    def _goal_trajectory(g: Goal) -> str:
+        if g.weekly_tss and _avg_tss_4wk > 0:
+            pct: Optional[float] = _avg_tss_4wk / g.weekly_tss
+        elif g.weekly_time_hours and _avg_act_4wk > 0:
+            pct = _avg_act_4wk / max(1.0, g.weekly_time_hours / 1.5)
+        elif _act_count_4wk > 0:
+            pct = 1.0
+        else:
+            return "No data"
+        if pct >= 1.1: return "Ahead"
+        if pct >= 0.7: return "On track"
+        return "Behind"
+
+    all_active_goals = (
+        db.query(Goal)
+        .filter(Goal.state.notin_(list(TERMINAL_STATES)))
+        .order_by(Goal.created_at.desc())
+        .all()
+    )
+    goals_snapshot = []
+    for g in all_active_goals:
+        entry: dict = {
+            "id":         g.id,
+            "title":      g.title,
+            "goal_type":  g.goal_type.value if g.goal_type else None,
+            "state":      g.state.value,
+            "is_primacy": g.state == GoalState.primacy,
+        }
+        if g.goal_type == GoalType.perpetual:
+            c, _ = _latest_two_metric_values(db, g.target_metric_type or "")
+            entry["rag"] = _rag(c, g.target_min, g.target_max)
+        elif g.goal_type == GoalType.achievement:
+            entry["days_remaining"] = (g.target_date - today).days if g.target_date else None
+            entry["trajectory"] = _goal_trajectory(g) if g.target_date else "No data"
+        elif g.goal_type == GoalType.habit:
+            period     = g.habit_period.value if g.habit_period else "week"
+            habit_type = g.habit_type.value if g.habit_type else "count"
+            accum      = _habit_accumulation(db, g.id, period)
+            if habit_type in ("duration", "volume"):
+                entry["this_period_count"] = round(accum["sum"])
+            else:
+                entry["this_period_count"] = accum["count"]
+            entry["weekly_target"] = g.weekly_target
+        goals_snapshot.append(entry)
 
     return {
-        "perpetual_goals": perpetual_goals,
+        # Preserved for backward compatibility
+        "perpetual_goals":      perpetual_goals,
         "this_week_milestones": this_week_milestones,
         "goals_with_deadlines": goals_with_deadlines,
-        "resources": {
-            "time_pct": round(tension.time_ratio * 100, 1),
-            "recovery_pct": round(tension.recovery_ratio * 100, 1),
-            "attention_count": tension.attention_count,
-            "three_week": {
-                "last_week": _snap(three_week.last_week),
-                "this_week": _snap(three_week.this_week),
-                "next_week": _snap(three_week.next_week),
-            },
-        },
+        "resources":            resources_dict,
+        # New fields
+        "general_condition":    general_condition,
+        "health_metrics":       health_metrics,
+        "activities_this_week": activities_this_week,
+        "goals_snapshot":       goals_snapshot,
+        "three_week_resources": resources_dict,
     }
 
 

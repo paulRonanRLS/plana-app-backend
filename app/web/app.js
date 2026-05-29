@@ -112,10 +112,11 @@ function prefillCapture(text) {
 async function loadNow() {
   try {
     const d = await apiFetch('/v1/now');
-    renderPerpetualGoals(d.perpetual_goals   || []);
-    renderThisWeekMilestones(d.this_week_milestones || []);
-    renderGoalsWithDeadlines(d.goals_with_deadlines || []);
-    renderResources(d.resources || {});
+    renderGeneralCondition(d.general_condition || 'No data yet');
+    renderHealthMetrics(d.health_metrics || []);
+    renderActivitiesThisWeek(d.activities_this_week || []);
+    renderGoalsSnapshot(d.goals_snapshot || []);
+    renderResources(d.three_week_resources || d.resources || {});
     apiFetch('/v1/health/integrations').then(renderSyncStatus).catch(() => {});
   } catch (err) {
     document.querySelector('main').innerHTML =
@@ -123,68 +124,92 @@ async function loadNow() {
   }
 }
 
-function renderPerpetualGoals(goals) {
-  if (!goals.length) {
-    setHTML('perpetual-goals', '<div class="empty-state">No perpetual goals active.</div>');
+function renderGeneralCondition(condition) {
+  const configs = {
+    'Restored':      { cls: 'condition-restored', sub: 'Based on today\'s Garmin data' },
+    'Carrying Load': { cls: 'condition-carrying',  sub: 'Based on today\'s Garmin data' },
+    'Depleted':      { cls: 'condition-depleted',  sub: 'Based on today\'s Garmin data' },
+    'No data yet':   { cls: 'condition-no-data',   sub: 'No Garmin data today' },
+  };
+  const { cls, sub } = configs[condition] || configs['No data yet'];
+  const el = document.getElementById('general-condition');
+  if (el) el.innerHTML =
+    `<div class="condition-banner ${cls}">` +
+    `<div class="condition-status">${esc(condition)}</div>` +
+    `<div class="condition-sub">${esc(sub)}</div>` +
+    `</div>`;
+}
+
+function renderHealthMetrics(metrics) {
+  if (!metrics.length) {
+    setHTML('health-metrics', '<div class="empty-state">Add health goals to see metrics</div>');
     return;
   }
   const trendGlyph = { up: '↑', down: '↓', flat: '→' };
-  setHTML('perpetual-goals', `<div class="metric-grid">${goals.map(g => {
-    const val   = g.current_value != null ? g.current_value : '—';
-    const range = (g.target_min != null || g.target_max != null)
-      ? `${g.target_min ?? '—'} – ${g.target_max ?? '—'}` : null;
-    const trendHtml = g.trend
-      ? `<span class="trend-arrow trend-${g.trend}">${trendGlyph[g.trend] || ''}</span>`
-      : '';
-    return `
-      <div class="metric-card">
-        <div class="metric-card-header">
-          <span class="rag-dot ${ragClass(g.rag)}"></span>
-          <span class="metric-card-name">${esc(g.title)}</span>
-        </div>
-        <div class="metric-card-value">${val}${trendHtml}</div>
-        ${range ? `<div class="metric-card-range">target ${esc(range)}</div>` : ''}
-      </div>`;
+  setHTML('health-metrics', `<div class="metric-grid">${metrics.map(m => {
+    const val  = m.current_value != null ? m.current_value : '—';
+    const unit = m.unit ? `<span class="metric-unit">${esc(m.unit)}</span>` : '';
+    const range = (m.target_min != null || m.target_max != null)
+      ? `target ${m.target_min ?? '—'} – ${m.target_max ?? '—'}` : null;
+    const trendHtml = m.trend
+      ? `<span class="trend-arrow trend-${m.trend}">${trendGlyph[m.trend] || ''}</span>` : '';
+    return `<div class="metric-card">
+      <div class="metric-card-header">
+        <span class="rag-dot ${ragClass(m.rag)}"></span>
+        <span class="metric-card-name">${esc(m.metric_name)}</span>
+      </div>
+      <div class="metric-card-value">${val}${unit}${trendHtml}</div>
+      ${range ? `<div class="metric-card-range">${esc(range)}</div>` : ''}
+    </div>`;
   }).join('')}</div>`);
 }
 
-function renderThisWeekMilestones(milestones) {
-  if (!milestones.length) {
-    setHTML('this-week-milestones', '<div class="empty-state">No milestones due this week.</div>');
+const _sportEmoji = {
+  run: '🏃', ride: '🚴', swim: '🏊', walk: '🚶', strength: '🏋️', other: '⚡',
+};
+
+function renderActivitiesThisWeek(activities) {
+  if (!activities.length) {
+    setHTML('activities-week', '<div class="empty-state">No activities this week</div>');
     return;
   }
-  setHTML('this-week-milestones', milestones.map(m => `
-    <div class="milestone-row">
-      <span class="milestone-state ${m.state}"></span>
-      <div style="flex:1;min-width:0">
-        <div class="milestone-goal">${esc(m.goal_title)}</div>
-        <div>${esc(m.title)}</div>
-      </div>
-      ${m.target_date ? `<span class="milestone-date">${fmtDate(m.target_date)}</span>` : ''}
-    </div>`).join(''));
+  setHTML('activities-week', activities.map(a => {
+    const emoji = _sportEmoji[a.sport_type] || '⚡';
+    const dist  = a.distance_km != null ? `<span class="activity-dist">${a.distance_km}km</span>` : '';
+    const tss   = a.tss != null ? `<span class="activity-tss">${a.tss} TSS</span>` : '';
+    return `<div class="activity-row">
+      <span class="activity-emoji">${emoji}</span>
+      <span class="activity-day">${esc(a.day_name)}</span>
+      ${dist}${tss}
+    </div>`;
+  }).join(''));
 }
 
-function renderGoalsWithDeadlines(goals) {
+function renderGoalsSnapshot(goals) {
   if (!goals.length) {
-    setHTML('deadline-goals', '<div class="empty-state">No goals with deadlines.</div>');
+    setHTML('goals-snapshot', '<div class="empty-state">No active goals</div>');
     return;
   }
-  setHTML('deadline-goals', goals.map(g => {
-    const urgent = g.days_remaining <= 30;
-    const soon   = g.days_remaining <= 90;
-    const daysClass = urgent ? 'urgent' : (soon ? 'soon' : '');
-    const daysTxt = g.days_remaining >= 0
-      ? `${g.days_remaining}d`
-      : `${Math.abs(g.days_remaining)}d overdue`;
-    return `
-      <div class="deadline-row">
-        ${stateBadge(g.state)}
-        <span class="deadline-name">${esc(g.title)}</span>
-        <span class="deadline-days ${daysClass}">${daysTxt}</span>
-        ${g.next_milestone
-          ? `<span class="milestone-date" style="font-size:0.8rem;color:var(--text-secondary)">→ ${esc(g.next_milestone)}</span>`
-          : ''}
-      </div>`;
+  setHTML('goals-snapshot', goals.map(g => {
+    const driftCls    = g.state === 'drifting' ? ' drifting' : '';
+    const primacyBadge = g.is_primacy
+      ? `<span class="badge badge-primacy" style="font-size:0.6rem;padding:0.1rem 0.35rem;margin-right:0.25rem">planA</span>` : '';
+    let leftHtml  = '';
+    let rightHtml = '';
+    if (g.goal_type === 'perpetual') {
+      leftHtml = `<span class="rag-dot ${ragClass(g.rag || 'none')}"></span>`;
+    } else if (g.goal_type === 'achievement') {
+      const days = g.days_remaining != null ? `${g.days_remaining}d` : '';
+      const traj = g.trajectory || 'No data';
+      rightHtml = `<span class="snapshot-status">${days ? days + ' — ' : ''}${esc(traj)}</span>`;
+    } else if (g.goal_type === 'habit') {
+      const count  = g.this_period_count ?? 0;
+      const target = g.weekly_target != null ? g.weekly_target : '?';
+      rightHtml = `<span class="snapshot-status">${count} / ${target} this week</span>`;
+    }
+    return `<div class="snapshot-row${driftCls}" onclick="window.location.href='/web/goals.html'">
+      ${leftHtml}${primacyBadge}<span class="snapshot-title">${esc(g.title)}</span>${rightHtml}
+    </div>`;
   }).join(''));
 }
 

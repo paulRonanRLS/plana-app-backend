@@ -1190,3 +1190,112 @@ div.ms-container:last-of-type { border-bottom: none; }
 }
 .sync-btn:hover:not(:disabled) { color: var(--navy); }
 .sync-btn:disabled { opacity: 0.35; cursor: default; }
+
+/* ── General condition banner (Now view) ─────────────────────────────────── */
+
+.condition-banner {
+  border-radius: 8px;
+  padding: 1rem 1.5rem;
+  color: #fff;
+}
+
+.condition-status {
+  font-size: 1.25rem;
+  font-weight: 700;
+  line-height: 1.2;
+}
+
+.condition-sub {
+  font-size: 0.78rem;
+  opacity: 0.85;
+  margin-top: 0.2rem;
+}
+
+.condition-restored { background: #27AE60; }
+.condition-carrying  { background: #D4A017; }
+.condition-depleted  { background: #C0392B; }
+.condition-no-data   { background: var(--text-secondary); }
+
+/* ── Compact section body (Now view) ─────────────────────────────────────── */
+
+.section-body-compact { padding: 0.5rem 1.25rem; }
+
+/* ── Metric unit label ───────────────────────────────────────────────────── */
+
+.metric-unit {
+  font-size: 0.7em;
+  font-weight: 400;
+  color: var(--text-secondary);
+  margin-left: 0.15rem;
+}
+
+/* ── Activity rows (Now view — This Week) ────────────────────────────────── */
+
+.activity-row {
+  display: flex;
+  align-items: center;
+  gap: 0.625rem;
+  padding: 0.45rem 0;
+  border-bottom: 1px solid var(--border);
+  font-size: 0.875rem;
+}
+.activity-row:last-child { border-bottom: none; }
+
+.activity-emoji { font-size: 1rem; flex-shrink: 0; }
+
+.activity-day {
+  flex: 1;
+  font-weight: 500;
+  color: var(--text-primary);
+}
+
+.activity-dist {
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+}
+
+.activity-tss {
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── Goals snapshot rows (Now view) ─────────────────────────────────────── */
+
+.snapshot-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.45rem 0;
+  border-bottom: 1px solid var(--border);
+  font-size: 0.875rem;
+  cursor: pointer;
+  transition: background 0.1s;
+  margin: 0 -1.25rem;
+  padding-left: 1.25rem;
+  padding-right: 1.25rem;
+}
+.snapshot-row:last-child { border-bottom: none; }
+.snapshot-row:hover { background: var(--light-grey); }
+
+.snapshot-row.drifting {
+  border-left: 3px solid var(--rag-amber);
+  padding-left: calc(1.25rem - 3px);
+}
+
+.snapshot-title {
+  flex: 1;
+  font-weight: 500;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.snapshot-status {
+  font-size: 0.78rem;
+  color: var(--text-secondary);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
