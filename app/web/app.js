@@ -305,7 +305,7 @@ async function triggerSync(service) {
 async function loadGoals() {
   try {
     const d = await apiFetch('/v1/goals/summary');
-    renderGoalCards(d.goals || []);
+    renderGoalCategories(d.goals || []);
     // Summary filters milestones to active/pending/suggested — reload each achievement
     // goal via the dedicated endpoint to pick up achieved/missed states too.
     const achievementIds = (d.goals || [])
@@ -317,6 +317,62 @@ async function loadGoals() {
   }
 }
 
+function _goalCardHtml(g) {
+  const cardClass = g.state === 'primacy' ? 'primacy' : (g.state === 'drifting' ? 'drifting' : '');
+  const badges = (g.state === 'primacy' ? stateBadge('primacy') : '') + typeBadge(g.goal_type);
+
+  let typeBody = '';
+  if (g.goal_type === 'habit') {
+    typeBody = renderHabitBody(g);
+  } else if (g.goal_type === 'perpetual') {
+    const val   = g.current_value != null ? g.current_value : '—';
+    const range = (g.target_min != null || g.target_max != null)
+      ? `target ${g.target_min ?? '—'} – ${g.target_max ?? '—'}` : '';
+    typeBody = `
+      <div class="metric-row" style="border-bottom:none;padding:0.5rem 0 0">
+        <span class="rag-dot ${ragClass(g.rag)}"></span>
+        <span class="metric-value">${val}</span>
+        ${range ? `<span class="metric-range">${esc(range)}</span>` : ''}
+      </div>`;
+  } else {
+    typeBody = `<div id="ms-list-${g.id}">${renderMilestoneRows(g.id, g.milestones)}</div>`;
+  }
+
+  const costParts = [];
+  if (g.weekly_time_hours) costParts.push(`<strong>${g.weekly_time_hours}h</strong> time/wk`);
+  if (g.weekly_tss)        costParts.push(`<strong>${g.weekly_tss}</strong> TSS/wk`);
+  const costHtml = costParts.length
+    ? `<div class="weekly-cost">${costParts.join(' · ')}</div>` : '';
+
+  return `
+    <div class="goal-card ${cardClass}">
+      <div class="goal-card-header" onclick="toggleGoal(this)">
+        <h3>${esc(g.title)}</h3>
+        ${badges}
+        ${g.target_date ? `<span class="milestone-date">${fmtDate(g.target_date)}</span>` : ''}
+        <span class="chevron">▼</span>
+      </div>
+      <div class="goal-card-body">
+        ${g.description ? `<p class="goal-description">${esc(g.description)}</p>` : ''}
+        ${typeBody}
+        ${costHtml}
+        ${g.sacrifice_count
+          ? `<div class="sacrifice-note">${g.sacrifice_count} sacrifice${g.sacrifice_count !== 1 ? 's' : ''} logged</div>`
+          : ''}
+        <div class="goal-actions">
+          <button class="btn btn-primary"
+            onclick="prefillCapture('sacrifice for ${esc(g.title).replace(/'/g,"\\'")}')">
+            Log sacrifice
+          </button>
+          <button class="btn"
+            onclick="prefillCapture('note on ${esc(g.title).replace(/'/g,"\\'")}:')">
+            Add note
+          </button>
+        </div>
+      </div>
+    </div>`;
+}
+
 function renderGoalCards(goals) {
   const container = document.getElementById('goals-list');
   if (!container) return;
@@ -324,62 +380,56 @@ function renderGoalCards(goals) {
     container.innerHTML = '<div class="empty-state">No active goals.</div>';
     return;
   }
+  container.innerHTML = goals.map(_goalCardHtml).join('');
+}
 
-  container.innerHTML = goals.map(g => {
-    const cardClass = g.state === 'primacy' ? 'primacy' : (g.state === 'drifting' ? 'drifting' : '');
-    const badges = (g.state === 'primacy' ? stateBadge('primacy') : '') + typeBadge(g.goal_type);
+// ── Goal category grouping ────────────────────────────────────────────────────
 
-    let typeBody = '';
-    if (g.goal_type === 'habit') {
-      typeBody = renderHabitBody(g);
-    } else if (g.goal_type === 'perpetual') {
-      const val   = g.current_value != null ? g.current_value : '—';
-      const range = (g.target_min != null || g.target_max != null)
-        ? `target ${g.target_min ?? '—'} – ${g.target_max ?? '—'}` : '';
-      typeBody = `
-        <div class="metric-row" style="border-bottom:none;padding:0.5rem 0 0">
-          <span class="rag-dot ${ragClass(g.rag)}"></span>
-          <span class="metric-value">${val}</span>
-          ${range ? `<span class="metric-range">${esc(range)}</span>` : ''}
-        </div>`;
-    } else {
-      typeBody = `<div id="ms-list-${g.id}">${renderMilestoneRows(g.id, g.milestones)}</div>`;
-    }
+const _HEALTH_METRICS = new Set([
+  'sleep_score', 'sleep_duration_hours', 'hrv', 'resting_hr', 'body_battery', 'stress',
+]);
 
-    const costParts = [];
-    if (g.weekly_time_hours) costParts.push(`<strong>${g.weekly_time_hours}h</strong> time/wk`);
-    if (g.weekly_tss)        costParts.push(`<strong>${g.weekly_tss}</strong> TSS/wk`);
-    const costHtml = costParts.length
-      ? `<div class="weekly-cost">${costParts.join(' · ')}</div>` : '';
+function _categoriseGoal(g) {
+  if (g.goal_type === 'perpetual' && _HEALTH_METRICS.has(g.target_metric_type)) return 'health';
+  if (g.goal_type === 'achievement' && g.weekly_tss)                             return 'training';
+  if (g.goal_type === 'habit')                                                    return 'habits';
+  return 'other';
+}
 
-    return `
-      <div class="goal-card ${cardClass}">
-        <div class="goal-card-header" onclick="toggleGoal(this)">
-          <h3>${esc(g.title)}</h3>
-          ${badges}
-          ${g.target_date ? `<span class="milestone-date">${fmtDate(g.target_date)}</span>` : ''}
-          <span class="chevron">▼</span>
+const _CATEGORY_ORDER  = ['health', 'training', 'habits', 'other'];
+const _CATEGORY_LABELS = { health: 'Health', training: 'Training', habits: 'Habits', other: 'Other' };
+
+function renderGoalCategories(goals) {
+  const container = document.getElementById('goals-list');
+  if (!container) return;
+  if (!goals.length) {
+    container.innerHTML = '<div class="empty-state">No active goals.</div>';
+    return;
+  }
+  const groups = { health: [], training: [], habits: [], other: [] };
+  goals.forEach(g => groups[_categoriseGoal(g)].push(g));
+  container.innerHTML = _CATEGORY_ORDER
+    .filter(cat => groups[cat].length > 0)
+    .map(cat => `
+      <div class="goal-category-section" data-category="${cat}">
+        <div class="goal-category-header" onclick="toggleCategory(this)">
+          <h3>${_CATEGORY_LABELS[cat]}</h3>
+          <span class="goal-category-count">${groups[cat].length}</span>
+          <span class="goal-category-chevron">▼</span>
         </div>
-        <div class="goal-card-body">
-          ${g.description ? `<p class="goal-description">${esc(g.description)}</p>` : ''}
-          ${typeBody}
-          ${costHtml}
-          ${g.sacrifice_count
-            ? `<div class="sacrifice-note">${g.sacrifice_count} sacrifice${g.sacrifice_count !== 1 ? 's' : ''} logged</div>`
-            : ''}
-          <div class="goal-actions">
-            <button class="btn btn-primary"
-              onclick="prefillCapture('sacrifice for ${esc(g.title).replace(/'/g,"\\'")}')">
-              Log sacrifice
-            </button>
-            <button class="btn"
-              onclick="prefillCapture('note on ${esc(g.title).replace(/'/g,"\\'")}:')">
-              Add note
-            </button>
-          </div>
+        <div class="goal-category-body open">
+          ${groups[cat].map(_goalCardHtml).join('')}
         </div>
-      </div>`;
-  }).join('');
+      </div>`)
+    .join('');
+}
+
+function toggleCategory(header) {
+  const body = header.nextElementSibling;
+  const chevron = header.querySelector('.goal-category-chevron');
+  if (!body) return;
+  const isOpen = body.classList.toggle('open');
+  if (chevron) chevron.style.transform = isOpen ? '' : 'rotate(-90deg)';
 }
 
 async function logHabit(goalId, btn, value) {

@@ -1299,3 +1299,49 @@ div.ms-container:last-of-type { border-bottom: none; }
   white-space: nowrap;
   flex-shrink: 0;
 }
+
+/* ── Goal category grouping (Goals view) ─────────────────────────────────── */
+
+.goal-category-section { margin-bottom: 0.5rem; }
+
+.goal-category-header {
+  display: flex;
+  align-items: center;
+  gap: 0.625rem;
+  padding: 0.5rem 0.875rem;
+  background: var(--light-blue);
+  border-radius: 6px;
+  cursor: pointer;
+  user-select: none;
+  transition: background 0.15s;
+  margin-bottom: 0.5rem;
+}
+.goal-category-header:hover { background: #c3dae6; }
+
+.goal-category-header h3 {
+  flex: 1;
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.09em;
+  color: var(--navy);
+  margin: 0;
+}
+
+.goal-category-count {
+  font-size: 0.7rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+  background: rgba(255,255,255,0.7);
+  border-radius: 999px;
+  padding: 0.05rem 0.5rem;
+}
+
+.goal-category-chevron {
+  font-size: 0.6rem;
+  color: var(--text-secondary);
+  transition: transform 0.2s;
+}
+
+.goal-category-body { display: block; }
+.goal-category-body:not(.open) { display: none; }
