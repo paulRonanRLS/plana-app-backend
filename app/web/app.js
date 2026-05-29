@@ -618,7 +618,15 @@ function toggleGoalMenu(event, btn) {
   }
   const willOpen = dropdown.classList.contains('hidden');
   dropdown.classList.toggle('hidden');
-  _openGoalMenu = willOpen ? dropdown : null;
+  if (willOpen) {
+    const rect = btn.getBoundingClientRect();
+    dropdown.style.top   = `${rect.bottom + 2}px`;
+    dropdown.style.right = `${window.innerWidth - rect.right}px`;
+    dropdown.style.left  = 'auto';
+    _openGoalMenu = dropdown;
+  } else {
+    _openGoalMenu = null;
+  }
 }
 
 function showGoalPanel(goalId, panelClass) {
@@ -1432,6 +1440,7 @@ async function logHabitValue(goalId, btn, inputId) {
 document.addEventListener('DOMContentLoaded', () => {
   initCaptureBar();
   document.addEventListener('click', () => { closeMsDropdown(); closeGoalMenus(); });
+  window.addEventListener('scroll', closeGoalMenus, { passive: true });
 
   document.getElementById('add-goal-btn')
     .addEventListener('click', openAddGoalPanel);

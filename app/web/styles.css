@@ -1370,10 +1370,8 @@ div.ms-container:last-of-type { border-bottom: none; }
 .goal-menu-btn:focus { color: var(--text-primary); background: var(--border); }
 
 .goal-dropdown {
-  position: absolute;
-  right: 0;
-  top: calc(100% + 2px);
-  z-index: 60;
+  position: fixed;
+  z-index: 1000;
   background: var(--white);
   border: 1px solid var(--border);
   border-radius: 6px;
