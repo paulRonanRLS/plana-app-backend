@@ -29,8 +29,12 @@ def _format_range(target_min, target_max) -> str:
     return "unknown"
 
 
-async def send_drift_alert(bot, chat_id: int, goal, drift_event) -> None:
-    """Surface metric drift. Does not recommend any action."""
+async def send_drift_alert(bot, chat_id: int, goal, drift_event, *, redis_client=None) -> None:
+    """Surface metric drift. Does not recommend any action.
+
+    When redis_client is provided, stores a pending_alert so the next yes/no
+    reply is routed to a goal summary rather than falling through to free_response.
+    """
     current_desc = (
         f"{drift_event.current_value:.1f}"
         if drift_event.current_value is not None
@@ -46,17 +50,27 @@ async def send_drift_alert(bot, chat_id: int, goal, drift_event) -> None:
         f"Do you want to review this goal?"
     )
     await bot.send_message(chat_id=chat_id, text=text)
+    if redis_client is not None:
+        from app.bot import session as session_mgr
+        session_mgr.set_pending_alert(redis_client, {"goal_id": goal.id, "alert_type": "drift"})
     logger.info(f"Drift alert sent for goal {goal.id} ({drift_event.days_outside_range}d outside range)")
 
 
-async def send_fade_alert(bot, chat_id: int, goal, fade_event) -> None:
-    """Surface absence of goal activity. Does not recommend any action."""
+async def send_fade_alert(bot, chat_id: int, goal, fade_event, *, redis_client=None) -> None:
+    """Surface absence of goal activity. Does not recommend any action.
+
+    When redis_client is provided, stores a pending_alert so the next yes/no
+    reply is routed to a goal summary rather than falling through to free_response.
+    """
     text = (
         f"No activity recorded for {goal.title} "
         f"in {fade_event.days_since_activity} days.\n\n"
         f"Is this goal still a priority?"
     )
     await bot.send_message(chat_id=chat_id, text=text)
+    if redis_client is not None:
+        from app.bot import session as session_mgr
+        session_mgr.set_pending_alert(redis_client, {"goal_id": goal.id, "alert_type": "fade"})
     logger.info(f"Fade alert sent for goal {goal.id} ({fade_event.days_since_activity}d inactive)")
 
 

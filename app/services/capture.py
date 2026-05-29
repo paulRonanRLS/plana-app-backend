@@ -7,7 +7,7 @@ one row to the metric_readings hypertable with MetricSource.telegram.
 import json
 import logging
 import re
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from typing import Any, Optional
 
 from sqlalchemy import func
@@ -15,6 +15,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.models.metric_reading import MetricReading, MetricSource, MetricType
+from app.models.sacrifice import ResourceType, Sacrifice
 
 logger = logging.getLogger(__name__)
 
@@ -88,6 +89,83 @@ def record_metric(db: Session, text: str) -> MetricReading:
     """Extract value and metric type from text and write a MetricReading."""
     metric_type, value = _parse_metric(text)
     return _write(db, metric_type, value=value, text_value=text[:_TEXT_LIMIT])
+
+
+# ── Sacrifice capture ──────────────────────────────────────────────────────────
+
+# Ordered by specificity — first matching resource wins.
+_RESOURCE_KEYWORDS: dict[str, tuple[str, ...]] = {
+    "recovery": ("tired", "exhausted", "fatigued", "sore", "recovery", "energy", "depleted"),
+    "attention": ("distracted", "focus", "attention", "overwhelmed", "scattered", "stress"),
+    "willpower": ("motivation", "willpower", "couldn't face", "mental", "burnout", "drained"),
+    "time": ("time", "work", "meeting", "busy", "schedule", "commitment", "appointment", "deadline"),
+}
+
+
+def extract_resource_from_text(text: str) -> ResourceType:
+    """Infer which of the four resources was depleted from natural language.
+
+    Returns ResourceType.time as default when no keyword matches.
+    """
+    low = text.lower()
+    for resource, keywords in _RESOURCE_KEYWORDS.items():
+        if any(k in low for k in keywords):
+            return ResourceType(resource)
+    return ResourceType.time
+
+
+def record_sacrifice(
+    db: Session, goal_id: int, resource: ResourceType, text: str
+) -> Sacrifice:
+    """Write a Sacrifice record attributed to the given goal and resource."""
+    s = Sacrifice(
+        goal_id=goal_id,
+        date=date.today(),
+        resource=resource,
+        notes=text[:_TEXT_LIMIT],
+        created_at=datetime.now(timezone.utc),
+    )
+    db.add(s)
+    db.commit()
+    db.refresh(s)
+    return s
+
+
+# ── Milestone matching ─────────────────────────────────────────────────────────
+
+def match_milestone_title(text: str, milestones: list) -> Optional[Any]:
+    """Return the first milestone whose title appears in text (word-boundary match).
+
+    Case-insensitive. Returns None if no milestone matches.
+    """
+    low = text.lower()
+    for m in milestones:
+        pattern = r"\b" + re.escape(m.title.lower()) + r"\b"
+        if re.search(pattern, low):
+            return m
+    return None
+
+
+# ── Goal state parsing ─────────────────────────────────────────────────────────
+
+_STATE_KEYWORDS: dict[str, tuple[str, ...]] = {
+    "primacy": ("plana", "planA", "primacy", "as my priority", "top priority", "my priority goal"),
+    "subordinate": ("subordinate", "background", "secondary", "back burner"),
+    "active": ("back to active", "set active", "make active", "active again"),
+    "drifting": ("drifting", "mark as drift"),
+}
+
+
+def extract_target_state_from_text(text: str) -> Optional[str]:
+    """Parse the intended goal state from natural language.
+
+    Returns one of "primacy", "active", "subordinate", "drifting", or None.
+    """
+    low = text.lower()
+    for state, keywords in _STATE_KEYWORDS.items():
+        if any(k in low for k in keywords):
+            return state
+    return None
 
 
 # ── Helpers ────────────────────────────────────────────────────────────────────

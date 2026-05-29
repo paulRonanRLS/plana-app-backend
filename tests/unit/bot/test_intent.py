@@ -116,6 +116,9 @@ def test_all_intents_defined():
         "metric_log",
         "goal_query",
         "activity_query",
+        "sacrifice_log",
+        "milestone_complete",
+        "goal_state_change",
         "free_response",
     }
     assert INTENTS == expected
@@ -208,6 +211,59 @@ def test_with_confidence_free_response_has_lower_confidence():
 def test_with_confidence_all_intents_have_stub_confidence():
     for intent in INTENTS:
         assert intent in _STUB_CONFIDENCE
+
+
+# ── new intent stubs ───────────────────────────────────────────────────────────
+
+def test_stub_sacrifice_log_skipped_training():
+    assert _stub_classify("skipped training because of meetings", is_morning=False) == "sacrifice_log"
+
+
+def test_stub_sacrifice_log_sacrificed_run():
+    assert _stub_classify("sacrificed my run for work today", is_morning=False) == "sacrifice_log"
+
+
+def test_stub_sacrifice_log_missed_my():
+    assert _stub_classify("missed my long ride this weekend", is_morning=False) == "sacrifice_log"
+
+
+def test_stub_milestone_complete_with_milestone_keyword():
+    assert _stub_classify("just finished my foundation milestone", is_morning=False) == "milestone_complete"
+
+
+def test_stub_milestone_complete_hit_my():
+    assert _stub_classify("hit my 18km milestone today", is_morning=False) == "milestone_complete"
+
+
+def test_stub_goal_state_change_set_as_plana():
+    assert _stub_classify("set cycling as my plana", is_morning=False) == "goal_state_change"
+
+
+def test_stub_goal_state_change_make_subordinate():
+    assert _stub_classify("make training subordinate now", is_morning=False) == "goal_state_change"
+
+
+def test_stub_goal_state_change_back_to_active():
+    assert _stub_classify("back to active please", is_morning=False) == "goal_state_change"
+
+
+def test_stub_sacrifice_log_has_confidence():
+    _, conf = classify_intent_with_confidence("sacrificed my run for work", is_morning=False, client=None)
+    assert conf > 0.0
+
+
+def test_stub_milestone_complete_has_confidence():
+    _, conf = classify_intent_with_confidence(
+        "finished my foundation milestone", is_morning=False, client=None
+    )
+    assert conf > 0.0
+
+
+def test_stub_goal_state_change_has_confidence():
+    _, conf = classify_intent_with_confidence(
+        "set running as my plana", is_morning=False, client=None
+    )
+    assert conf > 0.0
 
 
 def test_with_confidence_claude_valid_json(monkeypatch):

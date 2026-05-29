@@ -12,6 +12,8 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
+from unittest.mock import patch
+
 from app.bot.outreach import send_drift_alert, send_fade_alert, _format_range
 from app.services.drift import DriftEvent
 from app.services.fade import FadeEvent
@@ -165,3 +167,57 @@ def test_fade_alert_asks_question_not_recommendation(test_db):
     forbidden = ["you should", "you need to", "drop", "pause", "recommend", "suggest"]
     for phrase in forbidden:
         assert phrase.lower() not in text.lower(), f"Alert contains recommendation: '{phrase}'"
+
+
+# ── pending alert storage ──────────────────────────────────────────────────────
+
+def test_drift_alert_stores_pending_alert_when_redis_provided(test_db):
+    from unittest.mock import MagicMock
+    from app.bot import session as session_mgr
+
+    bot = make_bot()
+    goal = make_goal("Weight control", goal_id=5)
+    event = DriftEvent(5, "Weight control", "weight", 3, 79.0, 70.0, 75.0)
+    redis_client = MagicMock()
+
+    with patch.object(session_mgr, "set_pending_alert") as mock_set:
+        run(send_drift_alert(bot, 1, goal, event, redis_client=redis_client))
+        mock_set.assert_called_once_with(redis_client, {"goal_id": 5, "alert_type": "drift"})
+
+
+def test_drift_alert_no_pending_alert_without_redis(test_db):
+    from app.bot import session as session_mgr
+
+    bot = make_bot()
+    goal = make_goal()
+    event = DriftEvent(1, "Goal", "weight", 3, 79.0, 70.0, 75.0)
+
+    with patch.object(session_mgr, "set_pending_alert") as mock_set:
+        run(send_drift_alert(bot, 1, goal, event))  # no redis_client
+        mock_set.assert_not_called()
+
+
+def test_fade_alert_stores_pending_alert_when_redis_provided(test_db):
+    from unittest.mock import MagicMock
+    from app.bot import session as session_mgr
+
+    bot = make_bot()
+    goal = make_goal("Write the novel", goal_id=9)
+    event = FadeEvent(9, "Write the novel", 18, None)
+    redis_client = MagicMock()
+
+    with patch.object(session_mgr, "set_pending_alert") as mock_set:
+        run(send_fade_alert(bot, 1, goal, event, redis_client=redis_client))
+        mock_set.assert_called_once_with(redis_client, {"goal_id": 9, "alert_type": "fade"})
+
+
+def test_fade_alert_no_pending_alert_without_redis(test_db):
+    from app.bot import session as session_mgr
+
+    bot = make_bot()
+    goal = make_goal()
+    event = FadeEvent(1, "Goal", 18, None)
+
+    with patch.object(session_mgr, "set_pending_alert") as mock_set:
+        run(send_fade_alert(bot, 1, goal, event))  # no redis_client
+        mock_set.assert_not_called()

@@ -20,20 +20,26 @@ INTENTS = frozenset({
     "metric_log",
     "goal_query",
     "activity_query",
+    "sacrifice_log",
+    "milestone_complete",
+    "goal_state_change",
     "free_response",
 })
 
 _USER_TEMPLATE = """\
 Classify this message into exactly one intent:
 
-  morning_checkin  — waking report: subjective feel, energy, sleep quality
-  progress_capture — reporting an activity or work just done toward a goal
-  physical_state   — physical symptom: sore, fatigued, injured, niggles
-  illness_log      — illness start, progression, or recovery note
-  metric_log       — a specific measurable value (weight, alcohol units, etc.)
-  goal_query       — question about goal status, progress, or resources
-  activity_query   — question about past workouts, rides, runs, or training sessions (e.g. "what was my ride on Sunday", "how far did I run last week")
-  free_response    — continuation of conversation or anything else
+  morning_checkin   — waking report: subjective feel, energy, sleep quality
+  progress_capture  — reporting an activity or work just done toward a goal
+  physical_state    — physical symptom: sore, fatigued, injured, niggles
+  illness_log       — illness start, progression, or recovery note
+  metric_log        — a specific measurable value (weight, alcohol units, etc.)
+  goal_query        — question about goal status, progress, or resources
+  activity_query    — question about past workouts, rides, runs, or training sessions (e.g. "what was my ride on Sunday", "how far did I run last week")
+  sacrifice_log     — reporting a skipped commitment or deprioritised goal (e.g. "sacrificed my run for work", "skipped training because of meetings")
+  milestone_complete — reporting completion of a specific milestone (e.g. "just hit my foundation milestone", "finished the 18km long run milestone")
+  goal_state_change  — requesting a change to a goal's priority state (e.g. "set cycling as my planA", "make training subordinate")
+  free_response     — continuation of conversation or anything else
 
 Message: {text}
 
@@ -70,14 +76,17 @@ def classify_intent(
 _USER_TEMPLATE_CONFIDENCE = """\
 Classify this message into exactly one intent and rate your confidence.
 
-  morning_checkin  — waking report: subjective feel, energy, sleep quality
-  progress_capture — reporting an activity or work just done toward a goal
-  physical_state   — physical symptom: sore, fatigued, injured, niggles
-  illness_log      — illness start, progression, or recovery note
-  metric_log       — a specific measurable value (weight, alcohol units, etc.)
-  goal_query       — question about goal status, progress, or resources
-  activity_query   — question about past workouts, rides, runs, or training sessions
-  free_response    — continuation of conversation or anything else
+  morning_checkin   — waking report: subjective feel, energy, sleep quality
+  progress_capture  — reporting an activity or work just done toward a goal
+  physical_state    — physical symptom: sore, fatigued, injured, niggles
+  illness_log       — illness start, progression, or recovery note
+  metric_log        — a specific measurable value (weight, alcohol units, etc.)
+  goal_query        — question about goal status, progress, or resources
+  activity_query    — question about past workouts, rides, runs, or training sessions
+  sacrifice_log     — reporting a skipped commitment or deprioritised goal
+  milestone_complete — reporting completion of a specific milestone
+  goal_state_change  — requesting a change to a goal's priority state
+  free_response     — continuation of conversation or anything else
 
 Message: {text}
 
@@ -91,6 +100,9 @@ _STUB_CONFIDENCE: dict[str, float] = {
     "metric_log": 0.95,
     "goal_query": 0.9,
     "activity_query": 0.9,
+    "sacrifice_log": 0.9,
+    "milestone_complete": 0.9,
+    "goal_state_change": 0.9,
     "progress_capture": 0.85,
     "free_response": 0.5,
 }
@@ -141,6 +153,21 @@ def _stub_classify(text: str, is_morning: bool) -> str:
         return "goal_query"
     if any(w in low for w in ("kg", "lb", "weight", "unit", "alcohol", "drank")):
         return "metric_log"
+    # goal_state_change: explicit priority/state change requests
+    _state_change_markers = ("set as my plana", "set as plana", "make my plana", "as my plana",
+                             "as my priority goal", "set as priority", "make subordinate",
+                             "subordinate now", "back to active", "set active", "set as active")
+    if any(m in low for m in _state_change_markers):
+        return "goal_state_change"
+    # sacrifice_log: skipped or missed commitment — check before progress_capture
+    _sacrifice_markers = ("sacrificed", "skipped my", "missed my", "had to skip",
+                          "couldn't do", "gave up my", "skipped training", "skipped the")
+    if any(m in low for m in _sacrifice_markers):
+        return "sacrifice_log"
+    # milestone_complete: milestone keyword with completion verb — before progress_capture
+    _completion_verbs = ("completed", "finished", "hit my", "done with", "achieved")
+    if any(v in low for v in _completion_verbs) and "milestone" in low:
+        return "milestone_complete"
     _activity_keywords = ("ride", "run", "rode", "ran", "swim", "swam", "workout", "training", "session")
     _temporal_keywords = ("yesterday", "last", "sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "week", "today", "this morning")
     _query_starters = ("how", "what", "show", "tell", "did", "was", "were")

@@ -116,12 +116,15 @@ def _dispatch_drift_alerts(db, events) -> None:
     from telegram import Bot
     from app.bot.outreach import send_drift_alert
     from app.services.goal import get_goal
+    from app.core.redis_client import get_redis
+
+    redis_client = get_redis()
 
     async def _send() -> None:
         async with Bot(token=settings.telegram_bot_token) as bot:
             for event in events:
                 goal = get_goal(db, event.goal_id)
-                await send_drift_alert(bot, settings.telegram_chat_id, goal, event)
+                await send_drift_alert(bot, settings.telegram_chat_id, goal, event, redis_client=redis_client)
 
     asyncio.run(_send())
 
@@ -135,12 +138,15 @@ def _dispatch_fade_alerts(db, events) -> None:
     from telegram import Bot
     from app.bot.outreach import send_fade_alert
     from app.services.goal import get_goal
+    from app.core.redis_client import get_redis
+
+    redis_client = get_redis()
 
     async def _send() -> None:
         async with Bot(token=settings.telegram_bot_token) as bot:
             for event in events:
                 goal = get_goal(db, event.goal_id)
-                await send_fade_alert(bot, settings.telegram_chat_id, goal, event)
+                await send_fade_alert(bot, settings.telegram_chat_id, goal, event, redis_client=redis_client)
 
     asyncio.run(_send())
 

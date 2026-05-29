@@ -18,6 +18,7 @@ logger = logging.getLogger(__name__)
 
 SESSION_KEY = "bot:session"
 PENDING_CAPTURE_KEY = "bot:pending_capture"
+PENDING_ALERT_KEY = "bot:pending_alert"
 SESSION_TTL = 1800  # 30 minutes in seconds
 
 
@@ -97,3 +98,40 @@ def clear_pending_capture(client: Optional[redis.Redis]) -> None:
         client.delete(PENDING_CAPTURE_KEY)
     except Exception as e:
         logger.warning(f"Pending capture clear failed: {e}")
+
+
+# ── Pending alert (drift / fade acknowledgement) ───────────────────────────────
+
+def set_pending_alert(client: Optional[redis.Redis], data: dict) -> None:
+    """Store a pending drift or fade alert awaiting user acknowledgement.
+
+    data should contain at minimum: {"goal_id": int, "alert_type": "drift"|"fade"}
+    """
+    if client is None:
+        return
+    try:
+        client.setex(PENDING_ALERT_KEY, SESSION_TTL, json.dumps(data))
+    except Exception as e:
+        logger.warning(f"Pending alert save failed: {e}")
+
+
+def get_pending_alert(client: Optional[redis.Redis]) -> Optional[dict]:
+    """Return the pending alert dict, or None if none exists."""
+    if client is None:
+        return None
+    try:
+        raw = client.get(PENDING_ALERT_KEY)
+        return json.loads(raw) if raw else None
+    except Exception as e:
+        logger.warning(f"Pending alert get failed: {e}")
+        return None
+
+
+def clear_pending_alert(client: Optional[redis.Redis]) -> None:
+    """Delete the pending alert key."""
+    if client is None:
+        return
+    try:
+        client.delete(PENDING_ALERT_KEY)
+    except Exception as e:
+        logger.warning(f"Pending alert clear failed: {e}")

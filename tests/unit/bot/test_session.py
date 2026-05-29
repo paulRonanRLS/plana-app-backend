@@ -174,3 +174,72 @@ def test_clear_pending_capture_handles_redis_error():
 
 def test_pending_capture_key_distinct_from_session_key():
     assert sess.PENDING_CAPTURE_KEY != sess.SESSION_KEY
+
+
+# ── pending alert (drift / fade acknowledgement) ───────────────────────────────
+
+def test_set_pending_alert_stores_data():
+    client = _mock_redis()
+    sess.set_pending_alert(client, {"goal_id": 42, "alert_type": "drift"})
+    client.setex.assert_called_once()
+    args = client.setex.call_args[0]
+    assert args[0] == sess.PENDING_ALERT_KEY
+    assert args[1] == sess.SESSION_TTL
+    stored = json.loads(args[2])
+    assert stored["goal_id"] == 42
+    assert stored["alert_type"] == "drift"
+
+
+def test_set_pending_alert_no_client():
+    sess.set_pending_alert(None, {"goal_id": 1, "alert_type": "fade"})  # no-op, no error
+
+
+def test_set_pending_alert_handles_redis_error():
+    client = MagicMock()
+    client.setex.side_effect = Exception("write failed")
+    sess.set_pending_alert(client, {"goal_id": 1, "alert_type": "drift"})  # no exception raised
+
+
+def test_get_pending_alert_returns_data():
+    data = {"goal_id": 7, "alert_type": "fade"}
+    client = _mock_redis(json.dumps(data))
+    result = sess.get_pending_alert(client)
+    assert result == data
+
+
+def test_get_pending_alert_none_when_empty():
+    assert sess.get_pending_alert(_mock_redis(None)) is None
+
+
+def test_get_pending_alert_no_client():
+    assert sess.get_pending_alert(None) is None
+
+
+def test_get_pending_alert_handles_redis_error():
+    client = MagicMock()
+    client.get.side_effect = Exception("connection refused")
+    assert sess.get_pending_alert(client) is None
+
+
+def test_clear_pending_alert_deletes_key():
+    client = _mock_redis()
+    sess.clear_pending_alert(client)
+    client.delete.assert_called_once_with(sess.PENDING_ALERT_KEY)
+
+
+def test_clear_pending_alert_no_client():
+    sess.clear_pending_alert(None)  # no-op, no error
+
+
+def test_clear_pending_alert_handles_redis_error():
+    client = MagicMock()
+    client.delete.side_effect = Exception("delete failed")
+    sess.clear_pending_alert(client)  # no exception raised
+
+
+def test_pending_alert_key_distinct_from_session_key():
+    assert sess.PENDING_ALERT_KEY != sess.SESSION_KEY
+
+
+def test_pending_alert_key_distinct_from_capture_key():
+    assert sess.PENDING_ALERT_KEY != sess.PENDING_CAPTURE_KEY

@@ -3,25 +3,39 @@
 import json
 from datetime import datetime, timezone
 
+from datetime import datetime, timezone
+
 from app.models.goal import Goal, GoalState
 from app.models.metric_reading import MetricReading, MetricSource, MetricType
+from app.models.milestone import Milestone, MilestoneState
+from app.models.sacrifice import ResourceType, Sacrifice
 from app.services.capture import (
     _extract_number,
     _parse_metric,
+    extract_resource_from_text,
+    extract_target_state_from_text,
+    match_goal_by_keywords,
     match_goal_title,
+    match_milestone_title,
     record_illness,
     record_metric,
     record_physical_state,
     record_progress,
+    record_sacrifice,
 )
 
 
 # ── match_goal_title ───────────────────────────────────────────────────────────
 
-def _make_goal(title: str, state: GoalState = GoalState.active) -> Goal:
-    return Goal(title=title, state=state,
-                created_at=datetime.now(timezone.utc),
-                updated_at=datetime.now(timezone.utc))
+def _make_goal(title: str, state: GoalState = GoalState.active, keywords: str | None = None) -> Goal:
+    now = datetime.now(timezone.utc)
+    return Goal(title=title, state=state, capture_keywords=keywords,
+                created_at=now, updated_at=now)
+
+
+def _make_milestone(title: str, state: MilestoneState = MilestoneState.pending) -> Milestone:
+    now = datetime.now(timezone.utc)
+    return Milestone(title=title, state=state, sequence=1, created_at=now, updated_at=now)
 
 
 def test_match_goal_title_explicit_name():
@@ -238,3 +252,186 @@ def test_extract_number_none():
 
 def test_extract_number_first_match():
     assert _extract_number("had 2 out of 3 drinks") == 2.0
+
+
+# ── match_goal_by_keywords ─────────────────────────────────────────────────────
+
+def test_match_goal_by_keywords_finds_keyword_match():
+    import json
+    goal = _make_goal("Half Marathon", keywords=json.dumps(["long run", "marathon"]))
+    result = match_goal_by_keywords("did my long run this morning", [goal])
+    assert result is not None
+    assert result.title == "Half Marathon"
+
+
+def test_match_goal_by_keywords_no_keywords_on_goal():
+    goal = _make_goal("Half Marathon")  # no capture_keywords
+    result = match_goal_by_keywords("ran 18km this morning", [goal])
+    assert result is None
+
+
+def test_match_goal_by_keywords_empty_list():
+    assert match_goal_by_keywords("anything", []) is None
+
+
+def test_match_goal_by_keywords_case_insensitive():
+    import json
+    goal = _make_goal("Cycling", keywords=json.dumps(["Ride", "Bike"]))
+    result = match_goal_by_keywords("did a ride today", [goal])
+    assert result is not None
+
+
+def test_match_goal_by_keywords_word_boundary():
+    import json
+    goal = _make_goal("Run", keywords=json.dumps(["run"]))
+    # "running" should NOT match keyword "run" at word boundary
+    result = match_goal_by_keywords("went running this morning", [goal])
+    assert result is None
+
+
+def test_keywords_tried_before_title_in_resolution_scenario():
+    """Keywords should resolve when the goal title alone wouldn't match."""
+    import json
+    goal = _make_goal("Half Marathon", keywords=json.dumps(["long run"]))
+    # "long run" matches via keywords even though "Half Marathon" is not in text
+    by_kw = match_goal_by_keywords("did my long run", [goal])
+    by_title = match_goal_title("did my long run", [goal])
+    assert by_kw is not None   # keyword match succeeds
+    assert by_title is None    # title match fails — confirms Fix 3 is needed
+
+
+# ── record_sacrifice ───────────────────────────────────────────────────────────
+
+def test_record_sacrifice_writes_row(test_db):
+    from datetime import datetime, timezone
+    now = datetime.now(timezone.utc)
+    g = Goal(title="Run", state=GoalState.active, created_at=now, updated_at=now)
+    test_db.add(g)
+    test_db.commit()
+    test_db.refresh(g)
+
+    s = record_sacrifice(test_db, g.id, ResourceType.time, "skipped my run for work")
+    assert s.id is not None
+    assert s.goal_id == g.id
+    assert s.resource == ResourceType.time
+
+
+def test_record_sacrifice_correct_resource(test_db):
+    from datetime import datetime, timezone
+    now = datetime.now(timezone.utc)
+    g = Goal(title="Training", state=GoalState.active, created_at=now, updated_at=now)
+    test_db.add(g)
+    test_db.commit()
+    test_db.refresh(g)
+
+    s = record_sacrifice(test_db, g.id, ResourceType.recovery, "too tired to train")
+    assert s.resource == ResourceType.recovery
+
+
+def test_record_sacrifice_stores_notes(test_db):
+    from datetime import datetime, timezone
+    now = datetime.now(timezone.utc)
+    g = Goal(title="Training", state=GoalState.active, created_at=now, updated_at=now)
+    test_db.add(g)
+    test_db.commit()
+    test_db.refresh(g)
+
+    s = record_sacrifice(test_db, g.id, ResourceType.attention, "too distracted today")
+    assert "distracted" in s.notes
+
+
+def test_record_sacrifice_persists_to_db(test_db):
+    from datetime import datetime, timezone
+    now = datetime.now(timezone.utc)
+    g = Goal(title="Run", state=GoalState.active, created_at=now, updated_at=now)
+    test_db.add(g)
+    test_db.commit()
+    test_db.refresh(g)
+
+    record_sacrifice(test_db, g.id, ResourceType.time, "skipped for work")
+    count = test_db.query(Sacrifice).filter(Sacrifice.goal_id == g.id).count()
+    assert count == 1
+
+
+# ── extract_resource_from_text ─────────────────────────────────────────────────
+
+def test_extract_resource_work_is_time():
+    assert extract_resource_from_text("had to skip because of work") == ResourceType.time
+
+
+def test_extract_resource_meeting_is_time():
+    assert extract_resource_from_text("meeting ran long") == ResourceType.time
+
+
+def test_extract_resource_tired_is_recovery():
+    assert extract_resource_from_text("was too tired to train") == ResourceType.recovery
+
+
+def test_extract_resource_exhausted_is_recovery():
+    assert extract_resource_from_text("felt completely exhausted") == ResourceType.recovery
+
+
+def test_extract_resource_distracted_is_attention():
+    assert extract_resource_from_text("too distracted to focus") == ResourceType.attention
+
+
+def test_extract_resource_motivation_is_willpower():
+    assert extract_resource_from_text("just couldn't find the motivation") == ResourceType.willpower
+
+
+def test_extract_resource_default_is_time():
+    assert extract_resource_from_text("something happened") == ResourceType.time
+
+
+# ── match_milestone_title ──────────────────────────────────────────────────────
+
+def test_match_milestone_title_finds_match():
+    m = _make_milestone("Foundation")
+    result = match_milestone_title("just finished my foundation milestone", [m])
+    assert result is not None
+    assert result.title == "Foundation"
+
+
+def test_match_milestone_title_case_insensitive():
+    m = _make_milestone("Long Run")
+    result = match_milestone_title("completed the long run block", [m])
+    assert result is not None
+
+
+def test_match_milestone_title_no_match():
+    m = _make_milestone("Foundation")
+    result = match_milestone_title("completed something else entirely", [m])
+    assert result is None
+
+
+def test_match_milestone_title_empty_list():
+    assert match_milestone_title("completed my milestone", []) is None
+
+
+def test_match_milestone_title_returns_first():
+    m1 = _make_milestone("Foundation")
+    m2 = _make_milestone("Build")
+    result = match_milestone_title("done with foundation and build", [m1, m2])
+    assert result.title == "Foundation"
+
+
+# ── extract_target_state_from_text ─────────────────────────────────────────────
+
+def test_extract_target_state_primacy():
+    assert extract_target_state_from_text("set as my plana") == "primacy"
+
+
+def test_extract_target_state_primacy_keyword():
+    assert extract_target_state_from_text("make this my top priority") == "primacy"
+
+
+def test_extract_target_state_subordinate():
+    assert extract_target_state_from_text("put it in the background") == "subordinate"
+
+
+def test_extract_target_state_active():
+    assert extract_target_state_from_text("back to active please") == "active"
+
+
+def test_extract_target_state_unknown_returns_none():
+    assert extract_target_state_from_text("change something about the goal") is None
