@@ -1345,3 +1345,97 @@ div.ms-container:last-of-type { border-bottom: none; }
 
 .goal-category-body { display: block; }
 .goal-category-body:not(.open) { display: none; }
+
+/* ── Goal card management menu ───────────────────────────────────────────── */
+
+.goal-menu-wrap {
+  position: relative;
+  flex-shrink: 0;
+}
+
+.goal-menu-btn {
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: var(--text-secondary);
+  padding: 0.15rem 0.4rem;
+  font-size: 1rem;
+  letter-spacing: 0.05em;
+  line-height: 1;
+  font-family: inherit;
+  border-radius: 4px;
+  transition: color 0.12s, background 0.12s;
+}
+.goal-menu-btn:hover,
+.goal-menu-btn:focus { color: var(--text-primary); background: var(--border); }
+
+.goal-dropdown {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 2px);
+  z-index: 60;
+  background: var(--white);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  box-shadow: 0 4px 14px rgba(0,0,0,0.13);
+  min-width: 165px;
+  overflow: hidden;
+}
+
+.goal-dropdown-item {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 0.5rem 0.875rem;
+  font-size: 0.8rem;
+  font-family: inherit;
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: var(--text-primary);
+  transition: background 0.1s;
+}
+.goal-dropdown-item:hover  { background: var(--light-grey); }
+.goal-dropdown-danger      { color: var(--rag-red); }
+
+/* ── Goal action panels ───────────────────────────────────────────────────── */
+
+.goal-action-panel {
+  border-top: 1px solid var(--border);
+  background: var(--light-grey);
+}
+
+.goal-panel-inner { padding: 0.875rem 1rem; }
+
+.goal-panel-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-top: 0.75rem;
+}
+
+.goal-panel-feedback {
+  font-size: 0.75rem;
+  color: var(--rag-red);
+  margin-left: 0.25rem;
+}
+
+.goal-panel-confirm-text {
+  font-size: 0.875rem;
+  color: var(--text-primary);
+  display: block;
+  margin-bottom: 0.25rem;
+}
+
+.goal-memoir-preview {
+  font-size: 0.825rem;
+  color: var(--text-secondary);
+  line-height: 1.7;
+  font-style: italic;
+  background: var(--white);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  padding: 0.75rem;
+  white-space: pre-line;
+  min-height: 3rem;
+}

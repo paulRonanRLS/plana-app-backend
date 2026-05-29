@@ -345,13 +345,18 @@ function _goalCardHtml(g) {
     ? `<div class="weekly-cost">${costParts.join(' · ')}</div>` : '';
 
   return `
-    <div class="goal-card ${cardClass}">
+    <div class="goal-card ${cardClass}" id="goal-card-${g.id}">
       <div class="goal-card-header" onclick="toggleGoal(this)">
         <h3>${esc(g.title)}</h3>
         ${badges}
         ${g.target_date ? `<span class="milestone-date">${fmtDate(g.target_date)}</span>` : ''}
+        <div class="goal-menu-wrap" onclick="event.stopPropagation()">
+          <button class="goal-menu-btn" onclick="toggleGoalMenu(event,this)" title="Options">···</button>
+          <div class="goal-dropdown hidden">${_goalMenuItemsHtml(g)}</div>
+        </div>
         <span class="chevron">▼</span>
       </div>
+      ${_goalPanelsHtml(g)}
       <div class="goal-card-body">
         ${g.description ? `<p class="goal-description">${esc(g.description)}</p>` : ''}
         ${typeBody}
@@ -368,6 +373,114 @@ function _goalCardHtml(g) {
             onclick="prefillCapture('note on ${esc(g.title).replace(/'/g,"\\'")}:')">
             Add note
           </button>
+        </div>
+      </div>
+    </div>`;
+}
+
+function _goalMenuItemsHtml(g) {
+  const id = g.id;
+  const canDelete = g.sacrifice_count === 0 &&
+    !(g.milestones || []).some(m => m.state === 'achieved' || m.state === 'missed');
+  const editBtn    = `<button class="goal-dropdown-item" onclick="showGoalPanel(${id},'goal-edit-panel')">Edit</button>`;
+  const releaseBtn = `<button class="goal-dropdown-item goal-dropdown-danger" onclick="openReleasePanel(${id})">Release</button>`;
+  const deleteBtn  = canDelete
+    ? `<button class="goal-dropdown-item goal-dropdown-danger" onclick="showGoalPanel(${id},'goal-delete-panel')">Delete</button>`
+    : '';
+  if (g.state === 'draft') {
+    return editBtn +
+      `<button class="goal-dropdown-item" onclick="patchGoalState(${id},'active')">Activate</button>` +
+      deleteBtn;
+  }
+  if (g.state === 'active' || g.state === 'subordinate') {
+    return editBtn +
+      `<button class="goal-dropdown-item" onclick="patchGoalState(${id},'primacy')">Set as planA</button>` +
+      `<button class="goal-dropdown-item" onclick="patchGoalState(${id},'subordinate')">Set as subordinate</button>` +
+      releaseBtn + deleteBtn;
+  }
+  if (g.state === 'primacy') {
+    return editBtn +
+      `<button class="goal-dropdown-item" onclick="patchGoalState(${id},'active')">Set as active</button>` +
+      releaseBtn + deleteBtn;
+  }
+  if (g.state === 'drifting') {
+    return editBtn +
+      `<button class="goal-dropdown-item" onclick="patchGoalState(${id},'active')">Acknowledge drift</button>` +
+      releaseBtn + deleteBtn;
+  }
+  return editBtn;
+}
+
+function _goalPanelsHtml(g) {
+  const id = g.id;
+  const goalType = g.goal_type || 'achievement';
+
+  let typeFields = '';
+  if (goalType === 'perpetual') {
+    typeFields = `
+      <div class="form-row">
+        <div class="form-group">
+          <label class="form-label">Target minimum</label>
+          <input type="number" class="form-input" id="gedit-min-${id}" value="${g.target_min ?? ''}" step="0.1">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Target maximum</label>
+          <input type="number" class="form-input" id="gedit-max-${id}" value="${g.target_max ?? ''}" step="0.1">
+        </div>
+      </div>`;
+  } else if (goalType === 'habit') {
+    typeFields = `
+      <div class="form-group">
+        <label class="form-label">Weekly target</label>
+        <input type="number" class="form-input" id="gedit-target-${id}" value="${g.weekly_target ?? ''}" min="1">
+      </div>`;
+  } else {
+    typeFields = `
+      <div class="form-group">
+        <label class="form-label">Deadline <span class="form-optional">(optional)</span></label>
+        <input type="date" class="form-input" id="gedit-date-${id}" value="${g.target_date || ''}">
+      </div>`;
+  }
+
+  return `
+    <div class="goal-action-panel goal-edit-panel hidden" id="goal-edit-${id}">
+      <div class="goal-panel-inner">
+        <div class="form-group">
+          <label class="form-label">Title</label>
+          <input type="text" class="form-input" id="gedit-title-${id}" value="${esc(g.title)}">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Description <span class="form-optional">(optional)</span></label>
+          <textarea class="form-textarea" id="gedit-desc-${id}" rows="2">${esc(g.description || '')}</textarea>
+        </div>
+        ${typeFields}
+        <div class="goal-panel-actions">
+          <button class="btn btn-primary btn-sm" onclick="saveGoalEdit(${id})">Save</button>
+          <button class="btn btn-sm" onclick="cancelGoalPanel(${id})">Cancel</button>
+          <span class="goal-panel-feedback" id="gedit-feedback-${id}"></span>
+        </div>
+      </div>
+    </div>
+    <div class="goal-action-panel goal-release-panel hidden" id="goal-release-${id}">
+      <div class="goal-panel-inner">
+        <div class="goal-memoir-preview" id="goal-memoir-${id}">Loading memoir draft…</div>
+        <div class="form-group" style="margin-top:0.75rem">
+          <label class="form-label">Your reflection <span class="form-optional">(optional)</span></label>
+          <textarea class="form-textarea" id="grelease-note-${id}" rows="2" placeholder="Why are you releasing this goal?"></textarea>
+        </div>
+        <div class="goal-panel-actions">
+          <button class="btn btn-danger btn-sm" onclick="confirmGoalRelease(${id})">Release goal</button>
+          <button class="btn btn-sm" onclick="cancelGoalPanel(${id})">Cancel</button>
+          <span class="goal-panel-feedback" id="grelease-feedback-${id}"></span>
+        </div>
+      </div>
+    </div>
+    <div class="goal-action-panel goal-delete-panel hidden" id="goal-delete-${id}">
+      <div class="goal-panel-inner">
+        <span class="goal-panel-confirm-text">Permanently delete this goal?</span>
+        <div class="goal-panel-actions">
+          <button class="btn btn-danger btn-sm" onclick="confirmGoalDelete(${id})">Yes, delete</button>
+          <button class="btn btn-sm" onclick="cancelGoalPanel(${id})">Cancel</button>
         </div>
       </div>
     </div>`;
@@ -484,6 +597,110 @@ function toggleGoal(header) {
   if (!body) return;
   const open = body.classList.toggle('open');
   if (chevron) chevron.style.transform = open ? 'rotate(180deg)' : '';
+}
+
+// ── Goal management actions ───────────────────────────────────────────────────
+
+let _openGoalMenu = null;
+
+function closeGoalMenus() {
+  if (_openGoalMenu) {
+    _openGoalMenu.classList.add('hidden');
+    _openGoalMenu = null;
+  }
+}
+
+function toggleGoalMenu(event, btn) {
+  event.stopPropagation();
+  const dropdown = btn.nextElementSibling;
+  if (_openGoalMenu && _openGoalMenu !== dropdown) {
+    _openGoalMenu.classList.add('hidden');
+  }
+  const willOpen = dropdown.classList.contains('hidden');
+  dropdown.classList.toggle('hidden');
+  _openGoalMenu = willOpen ? dropdown : null;
+}
+
+function showGoalPanel(goalId, panelClass) {
+  closeGoalMenus();
+  const card = document.getElementById(`goal-card-${goalId}`);
+  if (!card) return;
+  card.querySelectorAll('.goal-action-panel').forEach(p => p.classList.add('hidden'));
+  card.querySelector('.' + panelClass)?.classList.remove('hidden');
+}
+
+function cancelGoalPanel(goalId) {
+  document.getElementById(`goal-card-${goalId}`)
+    ?.querySelectorAll('.goal-action-panel')
+    .forEach(p => p.classList.add('hidden'));
+}
+
+async function saveGoalEdit(goalId) {
+  const feedback = document.getElementById(`gedit-feedback-${goalId}`);
+  const body = {};
+  const titleEl    = document.getElementById(`gedit-title-${goalId}`);
+  const descEl     = document.getElementById(`gedit-desc-${goalId}`);
+  const minEl      = document.getElementById(`gedit-min-${goalId}`);
+  const maxEl      = document.getElementById(`gedit-max-${goalId}`);
+  const targetEl   = document.getElementById(`gedit-target-${goalId}`);
+  const dateEl     = document.getElementById(`gedit-date-${goalId}`);
+
+  if (titleEl) body.title = titleEl.value.trim();
+  if (!body.title) { if (feedback) feedback.textContent = 'Title required.'; return; }
+  if (descEl)     body.description   = descEl.value.trim()   || null;
+  if (minEl)      body.target_min    = minEl.value    !== '' ? parseFloat(minEl.value)      : null;
+  if (maxEl)      body.target_max    = maxEl.value    !== '' ? parseFloat(maxEl.value)      : null;
+  if (targetEl)   body.weekly_target = targetEl.value !== '' ? parseInt(targetEl.value, 10) : null;
+  if (dateEl)     body.target_date   = dateEl.value   || null;
+
+  try {
+    const res = await fetch(`/v1/goals/${goalId}`, {
+      method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+    });
+    if (!res.ok) { const d = await res.json().catch(() => ({})); throw new Error(d.detail || `HTTP ${res.status}`); }
+    await loadGoals();
+  } catch (e) { if (feedback) feedback.textContent = e.message; }
+}
+
+async function patchGoalState(goalId, state) {
+  closeGoalMenus();
+  try {
+    const res = await fetch(`/v1/goals/${goalId}/state`, {
+      method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ state }),
+    });
+    if (!res.ok) { const d = await res.json().catch(() => ({})); throw new Error(d.detail || `HTTP ${res.status}`); }
+    await loadGoals();
+  } catch (e) { alert(`Could not update goal: ${e.message}`); }
+}
+
+async function openReleasePanel(goalId) {
+  showGoalPanel(goalId, 'goal-release-panel');
+  const memoirEl = document.getElementById(`goal-memoir-${goalId}`);
+  if (!memoirEl) return;
+  try {
+    const data = await apiFetch(`/v1/goals/${goalId}/memoir`);
+    memoirEl.textContent = data.memoir || 'No memoir available.';
+  } catch { memoirEl.textContent = 'Could not load memoir draft.'; }
+}
+
+async function confirmGoalRelease(goalId) {
+  const feedback  = document.getElementById(`grelease-feedback-${goalId}`);
+  const user_note = document.getElementById(`grelease-note-${goalId}`)?.value.trim() || '';
+  try {
+    const res = await fetch(`/v1/goals/${goalId}/release`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ user_note }),
+    });
+    if (!res.ok) { const d = await res.json().catch(() => ({})); throw new Error(d.detail || `HTTP ${res.status}`); }
+    await loadGoals();
+  } catch (e) { if (feedback) feedback.textContent = e.message; }
+}
+
+async function confirmGoalDelete(goalId) {
+  try {
+    const res = await fetch(`/v1/goals/${goalId}`, { method: 'DELETE' });
+    if (!res.ok) { const d = await res.json().catch(() => ({})); throw new Error(d.detail || `HTTP ${res.status}`); }
+    await loadGoals();
+  } catch (e) { alert(`Could not delete goal: ${e.message}`); }
 }
 
 // ── Milestone inline actions ──────────────────────────────────────────────────
@@ -1214,7 +1431,7 @@ async function logHabitValue(goalId, btn, inputId) {
 
 document.addEventListener('DOMContentLoaded', () => {
   initCaptureBar();
-  document.addEventListener('click', closeMsDropdown);
+  document.addEventListener('click', () => { closeMsDropdown(); closeGoalMenus(); });
 
   document.getElementById('add-goal-btn')
     .addEventListener('click', openAddGoalPanel);

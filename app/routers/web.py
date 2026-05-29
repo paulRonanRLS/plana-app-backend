@@ -16,8 +16,20 @@ from app.dependencies.db import get_db
 from app.models.goal import Goal, GoalState, GoalType, HabitPeriod, HabitType
 from app.models.metric_reading import MetricReading, MetricSource, MetricType
 from app.models.milestone import Milestone, MilestoneState
-from app.services.goal import TERMINAL_STATES, activate_goal, create_goal, get_active_perpetual_goals_by_metric
+from app.services.goal import (
+    TERMINAL_STATES,
+    activate_goal,
+    create_goal,
+    delete_goal as delete_goal_svc,
+    get_active_perpetual_goals_by_metric,
+    get_goal as get_goal_svc,
+    release_goal as release_goal_svc,
+    set_primacy,
+    set_subordinate,
+    update_goal as update_goal_svc,
+)
 from app.services.resource import get_resource_tension, get_three_week_view, get_willpower_pattern
+from app.intelligence import memoir as memoir_intel
 
 router = APIRouter(tags=["web"])
 logger = logging.getLogger(__name__)
@@ -29,6 +41,23 @@ class CaptureRequest(BaseModel):
 
 class HabitLogRequest(BaseModel):
     value: float = 1.0
+
+
+class GoalUpdateRequest(BaseModel):
+    title: Optional[str] = None
+    description: Optional[str] = None
+    target_min: Optional[float] = None
+    target_max: Optional[float] = None
+    weekly_target: Optional[int] = None
+    target_date: Optional[date] = None
+
+
+class GoalStateRequest(BaseModel):
+    state: str
+
+
+class GoalReleaseRequest(BaseModel):
+    user_note: Optional[str] = None
 
 
 class GoalCreateRequest(BaseModel):
@@ -890,6 +919,68 @@ def log_habit(
     if habit_type == "consistency":
         result["streak"] = _habit_streak(db, goal_id)
     return result
+
+
+# ── Goal management endpoints ─────────────────────────────────────────────────
+
+@router.patch("/v1/goals/{goal_id}")
+def patch_goal(goal_id: int, body: GoalUpdateRequest, db: Session = Depends(get_db)):
+    """Partial update of goal fields from the web UI edit panel."""
+    data = body.model_dump(exclude_unset=True)
+    goal = update_goal_svc(db, goal_id, data)
+    return {"id": goal.id, "title": goal.title, "state": goal.state.value}
+
+
+@router.patch("/v1/goals/{goal_id}/state")
+def patch_goal_state(goal_id: int, body: GoalStateRequest, db: Session = Depends(get_db)):
+    """Lifecycle state transition — active, primacy, or subordinate."""
+    dispatch = {
+        "active":      activate_goal,
+        "primacy":     set_primacy,
+        "subordinate": set_subordinate,
+    }
+    fn = dispatch.get(body.state)
+    if fn is None:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unsupported state transition: {body.state!r}. Allowed: {list(dispatch)}",
+        )
+    goal = fn(db, goal_id)
+    return {"id": goal.id, "state": goal.state.value}
+
+
+@router.get("/v1/goals/{goal_id}/memoir")
+def get_goal_memoir(goal_id: int, db: Session = Depends(get_db)):
+    """Draft a memoir preview for a goal (used before release to show the user)."""
+    goal = get_goal_svc(db, goal_id)
+    client = get_client()
+    text = memoir_intel.draft(goal, goal.sacrifices, goal.milestones, client)
+    return {"goal_id": goal_id, "memoir": text}
+
+
+@router.post("/v1/goals/{goal_id}/release")
+def release_goal_endpoint(goal_id: int, body: GoalReleaseRequest, db: Session = Depends(get_db)):
+    """Release a goal. Generates a memoir draft and stores it alongside the user's note."""
+    goal = get_goal_svc(db, goal_id)
+    client = get_client()
+    memoir_text = memoir_intel.draft(goal, goal.sacrifices, goal.milestones, client)
+    goal = release_goal_svc(db, goal_id, reason=body.user_note or None, memoir=memoir_text)
+    return {"id": goal.id, "state": goal.state.value}
+
+
+@router.delete("/v1/goals/{goal_id}", status_code=204)
+def delete_goal_endpoint(goal_id: int, db: Session = Depends(get_db)):
+    """Permanently delete a goal. Blocked if the goal has sacrifice history or achieved milestones."""
+    goal = get_goal_svc(db, goal_id)
+    has_activity = bool(goal.sacrifices) or any(
+        m.state in (MilestoneState.achieved, MilestoneState.missed) for m in goal.milestones
+    )
+    if has_activity:
+        raise HTTPException(
+            status_code=409,
+            detail="Cannot delete a goal with activity history. Release it instead.",
+        )
+    delete_goal_svc(db, goal_id)
 
 
 # ── Template endpoints ─────────────────────────────────────────────────────────
