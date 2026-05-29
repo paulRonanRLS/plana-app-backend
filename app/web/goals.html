@@ -20,47 +20,41 @@
 <main>
   <div class="goals-toolbar">
     <span class="goals-toolbar-title">Active Goals</span>
-    <button class="btn btn-primary" id="add-goal-btn" onclick="openAddGoalWizard()">+ Add Goal</button>
+    <button class="btn btn-primary" id="add-goal-btn">+ Add Goal</button>
   </div>
-
-  <!-- Multi-step Add Goal Wizard -->
-  <div class="add-goal-wizard hidden" id="add-goal-wizard">
-
-    <!-- Step 1: Category selection -->
-    <div id="wizard-step-1">
-      <div class="wizard-nav">
-        <h3>Choose a category</h3>
-        <button class="btn" onclick="closeAddGoalWizard()">Cancel</button>
-      </div>
-      <div class="category-grid" id="wizard-categories"></div>
+  <!-- Add Goal Panel -->
+  <div id="add-goal-panel" class="add-goal-panel hidden">
+    <div class="panel-header-row">
+      <span>Add Goal</span>
+      <button class="btn" onclick="closeAddGoalPanel()">Cancel</button>
     </div>
-
-    <!-- Step 2: Template selection -->
-    <div id="wizard-step-2" class="hidden">
-      <div class="wizard-nav">
-        <button class="btn" onclick="wizardGoTo(1)">← Back</button>
-        <h3 id="wizard-cat-label">Templates</h3>
-        <button class="btn" onclick="closeAddGoalWizard()">Cancel</button>
-      </div>
-      <div class="template-grid" id="wizard-templates"></div>
+    <div class="form-group">
+      <label class="form-label">Category</label>
+      <select class="form-select" id="goal-category" onchange="onCategoryChange()">
+        <option value="">Choose a category…</option>
+      </select>
     </div>
-
-    <!-- Step 3: Configure form -->
-    <div id="wizard-step-3" class="hidden">
-      <div class="wizard-nav">
-        <button class="btn" id="wizard-back-3" onclick="wizardGoTo(2)">← Back</button>
-        <h3 id="wizard-config-label">Configure goal</h3>
-        <button class="btn" onclick="closeAddGoalWizard()">Cancel</button>
-      </div>
-      <form id="wizard-config-form">
-        <div id="wizard-config-fields"></div>
-        <div class="form-actions">
-          <button type="submit" class="btn btn-primary" id="wizard-submit">Create Goal</button>
-          <span class="form-feedback" id="wizard-feedback"></span>
-        </div>
-      </form>
+    <div id="goal-template-row" class="form-group hidden">
+      <label class="form-label">Template</label>
+      <select class="form-select" id="goal-template" onchange="onTemplateChange()">
+        <option value="">Choose a template…</option>
+      </select>
     </div>
-
+    <div id="goal-form-fields" class="hidden">
+      <div class="form-group">
+        <label class="form-label">Goal name</label>
+        <input type="text" class="form-input" id="goal-title" placeholder="e.g. Run a half marathon" autocomplete="off">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Description <span class="form-optional">(optional)</span></label>
+        <textarea class="form-textarea" id="goal-description" rows="2"></textarea>
+      </div>
+      <div id="goal-type-fields"></div>
+      <div class="form-actions">
+        <button class="btn btn-primary" id="goal-submit-btn" onclick="submitAddGoal()">Create Goal</button>
+        <span id="goal-form-error" class="form-feedback"></span>
+      </div>
+    </div>
   </div>
 
   <div id="goals-list">

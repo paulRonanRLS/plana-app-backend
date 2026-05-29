@@ -16,7 +16,7 @@ from app.dependencies.db import get_db
 from app.models.goal import Goal, GoalState, GoalType, HabitPeriod, HabitType
 from app.models.metric_reading import MetricReading, MetricSource, MetricType
 from app.models.milestone import Milestone, MilestoneState
-from app.services.goal import TERMINAL_STATES, activate_goal, create_goal
+from app.services.goal import TERMINAL_STATES, activate_goal, create_goal, get_active_perpetual_goals_by_metric
 from app.services.resource import get_resource_tension, get_three_week_view, get_willpower_pattern
 
 router = APIRouter(tags=["web"])
@@ -490,6 +490,7 @@ def get_goals_summary(db: Session = Depends(get_db)):
                 current, previous = _latest_two_metric_values(db, g.target_metric_type)
             else:
                 current, previous = None, None
+            entry["target_metric_type"] = g.target_metric_type
             entry["current_value"] = current
             entry["target_min"] = g.target_min
             entry["target_max"] = g.target_max
@@ -544,6 +545,13 @@ def get_reflection(db: Session = Depends(get_db)):
 @router.post("/v1/goals", status_code=201)
 def create_new_goal(body: GoalCreateRequest, db: Session = Depends(get_db)):
     """Create and immediately activate a new goal from the web UI."""
+    if body.goal_type == "perpetual" and body.target_metric_type:
+        if get_active_perpetual_goals_by_metric(db, body.target_metric_type):
+            raise HTTPException(
+                status_code=400,
+                detail="An active goal for this metric already exists.",
+            )
+
     goal = create_goal(
         db,
         title=body.title,

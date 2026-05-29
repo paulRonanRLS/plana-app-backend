@@ -9,7 +9,7 @@ from datetime import date, timedelta
 import pytest
 from fastapi import HTTPException
 
-from app.models.goal import GoalState
+from app.models.goal import GoalState, GoalType
 from app.models.resource_profile import ResourceProfile
 from app.services import goal as svc
 
@@ -345,3 +345,49 @@ def test_get_committed_resources_handles_null_allocations(test_db):
     assert result["goal_count"] == 1
     assert result["total_time_hours"] == 0.0
     assert result["total_tss"] == 0.0
+
+
+# ── get_active_perpetual_goals_by_metric ──────────────────────────────────────
+
+def _make_perpetual(db, metric_type: str, title=None):
+    g = make_active_goal(db, title=title or f"Perpetual {metric_type}")
+    g.goal_type = GoalType.perpetual
+    g.target_metric_type = metric_type
+    db.commit()
+    db.refresh(g)
+    return g
+
+
+def test_duplicate_metric_found(test_db):
+    _make_perpetual(test_db, "hrv")
+    result = svc.get_active_perpetual_goals_by_metric(test_db, "hrv")
+    assert len(result) == 1
+    assert result[0].target_metric_type == "hrv"
+
+
+def test_duplicate_metric_not_found_for_different_metric(test_db):
+    _make_perpetual(test_db, "hrv")
+    result = svc.get_active_perpetual_goals_by_metric(test_db, "sleep_score")
+    assert result == []
+
+
+def test_duplicate_metric_excludes_released(test_db):
+    g = _make_perpetual(test_db, "hrv")
+    svc.release_goal(test_db, g.id)
+    result = svc.get_active_perpetual_goals_by_metric(test_db, "hrv")
+    assert result == []
+
+
+def test_duplicate_metric_excludes_completed(test_db):
+    g = _make_perpetual(test_db, "hrv")
+    svc.complete_goal(test_db, g.id)
+    result = svc.get_active_perpetual_goals_by_metric(test_db, "hrv")
+    assert result == []
+
+
+def test_duplicate_metric_ignores_non_perpetual(test_db):
+    g = make_active_goal(test_db, title="Not perpetual")
+    g.target_metric_type = "hrv"
+    test_db.commit()
+    result = svc.get_active_perpetual_goals_by_metric(test_db, "hrv")
+    assert result == []

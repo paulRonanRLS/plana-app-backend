@@ -748,6 +748,18 @@ div.ms-container:last-of-type { border-bottom: none; }
   margin-bottom: 1rem;
 }
 
+.panel-header-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 1rem;
+  padding-bottom: 0.75rem;
+  border-bottom: 1px solid var(--border);
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: var(--navy);
+}
+
 /* ── Goal wizard ─────────────────────────────────────────────────────────── */
 
 .add-goal-wizard {

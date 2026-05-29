@@ -17,9 +17,9 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
-    op.execute("CREATE TYPE IF NOT EXISTS progresstype AS ENUM ('cumulative', 'single_effort')")
-    op.execute("CREATE TYPE IF NOT EXISTS progressmetric AS ENUM ('distance_km', 'duration_min', 'tss', 'count')")
-    op.execute("CREATE TYPE IF NOT EXISTS progressperiod AS ENUM ('week', 'month', 'lifetime')")
+    op.execute("DO $$ BEGIN CREATE TYPE progresstype AS ENUM ('cumulative', 'single_effort'); EXCEPTION WHEN duplicate_object THEN null; END $$")
+    op.execute("DO $$ BEGIN CREATE TYPE progressmetric AS ENUM ('distance_km', 'duration_min', 'tss', 'count'); EXCEPTION WHEN duplicate_object THEN null; END $$")
+    op.execute("DO $$ BEGIN CREATE TYPE progressperiod AS ENUM ('week', 'month', 'lifetime'); EXCEPTION WHEN duplicate_object THEN null; END $$")
 
     op.add_column('milestones', sa.Column('activity_type', sa.String(50), nullable=True))
     op.add_column('milestones', sa.Column('progress_type', sa.Enum('cumulative', 'single_effort', name='progresstype', create_type=False), nullable=True))

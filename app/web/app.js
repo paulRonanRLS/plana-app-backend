@@ -288,8 +288,7 @@ async function loadGoals() {
       .map(g => g.id);
     achievementIds.forEach(id => reloadMilestones(id));
   } catch (err) {
-    document.querySelector('main').innerHTML =
-      `<div class="error-state">Failed to load: ${esc(err.message)}</div>`;
+    setHTML('goals-list', `<div class="error-state">Failed to load: ${esc(err.message)}</div>`);
   }
 }
 
@@ -766,357 +765,273 @@ function renderSacrificePattern(pattern) {
   setHTML('sacrifice-pattern', summary + `<div class="sacrifice-bars">${bars}</div>`);
 }
 
-// ── Add Goal Wizard ───────────────────────────────────────────────────────────
+// ── Add Goal Panel ────────────────────────────────────────────────────────────
 
-let _wizardTemplates    = null;   // {category_id: {id, label, description, templates}}
-let _wizardCategory     = null;   // selected category id
-let _wizardTemplate     = null;   // selected template object
-let _wizardPreview      = null;   // preview data from server
+let _panelTemplates = null;
 
-async function openAddGoalWizard() {
-  const wizard = document.getElementById('add-goal-wizard');
-  const btn    = document.getElementById('add-goal-btn');
-  if (!wizard) return;
-  wizard.classList.remove('hidden');
-  if (btn) btn.textContent = '✕ Cancel';
-  wizardGoTo(1);
-  if (!_wizardTemplates) {
+async function openAddGoalPanel() {
+  const panel = document.getElementById('add-goal-panel');
+  if (!panel) return;
+  panel.classList.remove('hidden');
+
+  const catSel = document.getElementById('goal-category');
+  const tplRow = document.getElementById('goal-template-row');
+  const fields = document.getElementById('goal-form-fields');
+  if (catSel) catSel.value = '';
+  tplRow?.classList.add('hidden');
+  fields?.classList.add('hidden');
+
+  if (!_panelTemplates) {
     try {
       const d = await apiFetch('/v1/templates');
-      _wizardTemplates = d.categories || {};
+      _panelTemplates = d.categories || {};
     } catch {
-      _wizardTemplates = {};
+      _panelTemplates = {};
     }
   }
-  _renderWizardCategories();
+
+  if (catSel) {
+    catSel.innerHTML = '<option value="">Choose a category…</option>';
+    Object.values(_panelTemplates).forEach(cat => {
+      const opt = document.createElement('option');
+      opt.value = cat.id;
+      opt.textContent = cat.label;
+      catSel.appendChild(opt);
+    });
+    const custom = document.createElement('option');
+    custom.value = '__custom__';
+    custom.textContent = 'Custom';
+    catSel.appendChild(custom);
+  }
+
+  panel.scrollIntoView({ block: 'nearest' });
 }
 
-function closeAddGoalWizard() {
-  const wizard = document.getElementById('add-goal-wizard');
-  const btn    = document.getElementById('add-goal-btn');
-  if (wizard) wizard.classList.add('hidden');
-  if (btn) btn.textContent = '+ Add Goal';
-  _wizardCategory = null;
-  _wizardTemplate = null;
-  _wizardPreview  = null;
+function closeAddGoalPanel() {
+  document.getElementById('add-goal-panel')?.classList.add('hidden');
 }
 
-function wizardGoTo(step) {
-  [1, 2, 3].forEach(n => {
-    const el = document.getElementById(`wizard-step-${n}`);
-    if (el) el.classList.toggle('hidden', n !== step);
+async function onCategoryChange() {
+  const catId  = document.getElementById('goal-category')?.value;
+  const tplRow = document.getElementById('goal-template-row');
+  const tplSel = document.getElementById('goal-template');
+  const fields = document.getElementById('goal-form-fields');
+
+  if (!catId) {
+    tplRow?.classList.add('hidden');
+    fields?.classList.add('hidden');
+    return;
+  }
+
+  if (catId === '__custom__') {
+    tplRow?.classList.add('hidden');
+    renderGoalTypeFields(null);
+    fields?.classList.remove('hidden');
+    return;
+  }
+
+  const cat = _panelTemplates?.[catId];
+  if (!cat || !tplSel) return;
+
+  let activeMetrics = new Set();
+  if (catId === 'health_foundation') {
+    try {
+      const summary = await apiFetch('/v1/goals/summary');
+      for (const g of (summary.goals || [])) {
+        if (g.goal_type === 'perpetual' && g.target_metric_type) {
+          activeMetrics.add(g.target_metric_type);
+        }
+      }
+    } catch {}
+  }
+
+  tplSel.innerHTML = '<option value="">Choose a template…</option>';
+  (cat.templates || []).forEach(t => {
+    const opt = document.createElement('option');
+    opt.value = t.id;
+    const alreadyActive = t.metric && activeMetrics.has(t.metric);
+    if (alreadyActive) {
+      opt.textContent = t.label + ' — Already configured';
+      opt.disabled = true;
+    } else {
+      opt.textContent = t.label;
+    }
+    tplSel.appendChild(opt);
   });
+
+  tplRow?.classList.remove('hidden');
+  fields?.classList.add('hidden');
 }
 
-function _renderWizardCategories() {
-  const grid = document.getElementById('wizard-categories');
-  if (!grid || !_wizardTemplates) return;
+function onTemplateChange() {
+  const catId  = document.getElementById('goal-category')?.value;
+  const tplId  = document.getElementById('goal-template')?.value;
+  const fields = document.getElementById('goal-form-fields');
 
-  const cats = Object.values(_wizardTemplates);
-  const customCard = `
-    <div class="category-card" onclick="wizardSelectCustom()">
-      <div class="category-card-label">Custom</div>
-      <div class="category-card-desc">Freeform goal — define your own type and target.</div>
-    </div>`;
+  if (!tplId) { fields?.classList.add('hidden'); return; }
 
-  grid.innerHTML = cats.map(cat => `
-    <div class="category-card" onclick="wizardSelectCategory('${esc(cat.id)}')">
-      <div class="category-card-label">${esc(cat.label)}</div>
-      <div class="category-card-desc">${esc(cat.description || '')}</div>
-    </div>`).join('') + customCard;
+  const cat = _panelTemplates?.[catId];
+  const template = cat?.templates?.find(t => t.id === tplId) || null;
+  renderGoalTypeFields(template);
+  fields?.classList.remove('hidden');
+  document.getElementById('goal-title')?.focus();
 }
 
-function wizardSelectCategory(catId) {
-  _wizardCategory = catId;
-  const cat = _wizardTemplates?.[catId];
-  if (!cat) return;
+function renderGoalTypeFields(template) {
+  const container = document.getElementById('goal-type-fields');
+  if (!container) return;
 
-  document.getElementById('wizard-cat-label').textContent = cat.label;
+  const titleEl = document.getElementById('goal-title');
+  if (titleEl) titleEl.value = template?.suggested_title || '';
 
-  const grid = document.getElementById('wizard-templates');
-  grid.innerHTML = (cat.templates || []).map(t => `
-    <div class="template-card" onclick="wizardSelectTemplate('${esc(t.id)}')">
-      <div class="template-card-label">${esc(t.label)}</div>
-      <div class="template-card-desc">${esc(t.description || '')}</div>
-    </div>`).join('');
-
-  wizardGoTo(2);
-}
-
-async function wizardSelectTemplate(templateId) {
-  const cat = _wizardTemplates?.[_wizardCategory];
-  _wizardTemplate = cat?.templates?.find(t => t.id === templateId) || null;
-  if (!_wizardTemplate) return;
-
-  // Fetch preview (suggested range, capability fields) from server
-  _wizardPreview = null;
-  try {
-    const res = await fetch(`/v1/templates/${templateId}/preview`, { method: 'POST' });
-    if (res.ok) _wizardPreview = await res.json();
-  } catch {}
-
-  _renderWizardConfigForm(_wizardTemplate, _wizardPreview);
-  wizardGoTo(3);
-  document.getElementById('wizard-back-3').onclick = () => wizardGoTo(2);
-}
-
-function wizardSelectCustom() {
-  _wizardCategory = 'custom';
-  _wizardTemplate = null;
-  _wizardPreview  = null;
-  _renderWizardConfigForm(null, null);
-  wizardGoTo(3);
-  document.getElementById('wizard-back-3').onclick = () => wizardGoTo(1);
-  document.getElementById('wizard-config-label').textContent = 'Custom goal';
-}
-
-function _renderWizardConfigForm(template, preview) {
-  const label = template
-    ? document.getElementById('wizard-config-label')
-    : document.getElementById('wizard-config-label');
-  if (label && template) label.textContent = template.label;
-
-  const goalType   = template?.goal_type || 'achievement';
-  const isHabit    = goalType === 'habit';
-  const isPerpetual = goalType === 'perpetual';
-  const isAchievement = goalType === 'achievement';
-  const suggestedTitle = template?.suggested_title || '';
-
+  const goalType = template?.goal_type || 'achievement';
   let html = '';
 
-  // Title
-  html += `
-    <div class="form-group">
-      <label class="form-label">Goal name</label>
-      <input type="text" class="form-input" id="wiz-title" required
-             value="${esc(suggestedTitle)}" placeholder="e.g. Run a half marathon">
-    </div>`;
-
-  // Goal type (only for custom)
   if (!template) {
     html += `
-      <div class="form-row">
+      <div class="form-group">
+        <label class="form-label">Type</label>
+        <select class="form-select" id="goal-type-select" onchange="onCustomTypeChange()">
+          <option value="achievement">Achievement</option>
+          <option value="perpetual">Perpetual</option>
+          <option value="habit">Habit</option>
+        </select>
+      </div>
+      <div id="custom-achievement-fields">
         <div class="form-group">
-          <label class="form-label">Type</label>
-          <select class="form-select" id="wiz-goal-type" onchange="_wizardCustomTypeChange()">
-            <option value="achievement">Achievement</option>
-            <option value="perpetual">Perpetual</option>
-            <option value="habit">Habit</option>
-          </select>
+          <label class="form-label">Deadline <span class="form-optional">(optional)</span></label>
+          <input type="date" class="form-input" id="goal-target-date">
+        </div>
+      </div>
+      <div id="custom-perpetual-fields" class="hidden">
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label">Target minimum</label>
+            <input type="number" class="form-input" id="goal-target-min" step="0.1">
+          </div>
+          <div class="form-group">
+            <label class="form-label">Target maximum</label>
+            <input type="number" class="form-input" id="goal-target-max" step="0.1">
+          </div>
+        </div>
+      </div>
+      <div id="custom-habit-fields" class="hidden">
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label">Weekly target</label>
+            <input type="number" class="form-input" id="goal-habit-target" min="1" value="3">
+          </div>
+          <div class="form-group">
+            <label class="form-label">Unit</label>
+            <input type="text" class="form-input" id="goal-habit-unit" placeholder="sessions">
+          </div>
         </div>
       </div>`;
-  }
-
-  // Achievement: end date (prominent)
-  if (isAchievement) {
-    const required = template?.requires_end_date ? 'required' : '';
+  } else if (goalType === 'achievement') {
     html += `
       <div class="form-group">
-        <label class="form-label">Race / event date${template?.requires_end_date ? '' : ' <span class="form-optional">(optional)</span>'}</label>
-        <input type="date" class="form-input" id="wiz-target-date" ${required}>
+        <label class="form-label">Event date${template.requires_end_date ? '' : ' <span class="form-optional">(optional)</span>'}</label>
+        <input type="date" class="form-input" id="goal-target-date"${template.requires_end_date ? ' required' : ''}>
       </div>`;
-  }
-
-  // Perpetual: target range
-  if (isPerpetual && template) {
-    const min = preview?.suggested_min ?? template.default_min ?? '';
-    const max = preview?.suggested_max ?? template.default_max ?? '';
-    const hasData = preview?.has_data;
-    const note = preview?.note || '';
+  } else if (goalType === 'perpetual') {
     html += `
       <div class="form-row">
         <div class="form-group">
           <label class="form-label">Target minimum</label>
-          <input type="number" class="form-input" id="wiz-target-min" value="${min}" step="0.1">
-          ${hasData ? `<span class="suggested-hint">${esc(note)}</span>` : ''}
+          <input type="number" class="form-input" id="goal-target-min" value="${template.default_min ?? ''}" step="0.1">
         </div>
         <div class="form-group">
           <label class="form-label">Target maximum</label>
-          <input type="number" class="form-input" id="wiz-target-max" value="${max}" step="0.1">
+          <input type="number" class="form-input" id="goal-target-max" value="${template.default_max ?? ''}" step="0.1">
         </div>
       </div>`;
-  }
-
-  // Habit fields
-  if (isHabit) {
-    const habitType   = template?.habit_type   || 'count';
-    const habitUnit   = template?.habit_unit   || 'sessions';
-    const habitPeriod = template?.habit_period || 'week';
-    const defaultTarget = template?.default_target || 3;
-
+  } else if (goalType === 'habit') {
+    const habitUnit   = template.habit_unit   || 'sessions';
+    const habitPeriod = template.habit_period || 'week';
+    const defaultTarget = template.default_target || 3;
     const periodLabel = { day: 'per day', week: 'per week', month: 'per month' }[habitPeriod] || '';
     html += `
       <div class="form-row">
         <div class="form-group">
           <label class="form-label">Target (${esc(habitUnit)} ${esc(periodLabel)})</label>
-          <input type="number" class="form-input" id="wiz-habit-target"
-                 min="1" value="${defaultTarget}">
+          <input type="number" class="form-input" id="goal-habit-target" min="1" value="${defaultTarget}">
         </div>
         <div class="form-group">
-          <label class="form-label">Type</label>
-          <select class="form-select" id="wiz-habit-type">
-            <option value="count"${habitType === 'count' ? ' selected' : ''}>Count</option>
-            <option value="duration"${habitType === 'duration' ? ' selected' : ''}>Duration</option>
-            <option value="consistency"${habitType === 'consistency' ? ' selected' : ''}>Consistency</option>
-            <option value="volume"${habitType === 'volume' ? ' selected' : ''}>Volume</option>
-          </select>
-        </div>
-      </div>
-      <div class="form-row">
-        <div class="form-group">
-          <label class="form-label">Unit <span class="form-optional">(sessions / mins / steps…)</span></label>
-          <input type="text" class="form-input" id="wiz-habit-unit" value="${esc(habitUnit)}">
-        </div>
-        <div class="form-group">
-          <label class="form-label">Period</label>
-          <select class="form-select" id="wiz-habit-period">
-            <option value="day"${habitPeriod === 'day' ? ' selected' : ''}>Daily</option>
-            <option value="week"${habitPeriod === 'week' ? ' selected' : ''}>Weekly</option>
-            <option value="month"${habitPeriod === 'month' ? ' selected' : ''}>Monthly</option>
-          </select>
+          <label class="form-label">Unit</label>
+          <input type="text" class="form-input" id="goal-habit-unit" value="${esc(habitUnit)}">
         </div>
       </div>`;
   }
 
-  // Capability fields (achievement templates)
-  const capFields = template?.capability_fields || [];
-  if (capFields.length) {
-    html += `<div class="capability-fields">
-      <div class="capability-fields-label">Your current capability (helps personalise milestones)</div>`;
-    capFields.forEach(f => {
-      html += `
-        <div class="form-group" style="margin-bottom:0.5rem">
-          <label class="form-label">${esc(f.label)}</label>
-          <input type="${esc(f.type || 'text')}" class="form-input"
-                 id="wiz-cap-${esc(f.id)}" placeholder="${esc(f.placeholder || '')}">
-        </div>`;
-    });
-    html += `</div>`;
-  }
-
-  // Custom achievement: end date
-  if (!template && goalType !== 'habit' && goalType !== 'perpetual') {
-    html += `
-      <div class="form-group" id="wiz-custom-deadline-group">
-        <label class="form-label">Deadline <span class="form-optional">(optional)</span></label>
-        <input type="date" class="form-input" id="wiz-target-date">
-      </div>`;
-  }
-
-  // Custom perpetual: metric range
-  if (!template) {
-    html += `
-      <div class="form-row hidden" id="wiz-custom-range-group">
-        <div class="form-group">
-          <label class="form-label">Target minimum</label>
-          <input type="number" class="form-input" id="wiz-target-min" step="0.1">
-        </div>
-        <div class="form-group">
-          <label class="form-label">Target maximum</label>
-          <input type="number" class="form-input" id="wiz-target-max" step="0.1">
-        </div>
-      </div>`;
-  }
-
-  // Description
-  html += `
-    <div class="form-group">
-      <label class="form-label">Description <span class="form-optional">(optional)</span></label>
-      <textarea class="form-textarea" id="wiz-description" rows="2"
-                placeholder="What does success look like?"></textarea>
-    </div>`;
-
-  document.getElementById('wizard-config-fields').innerHTML = html;
+  container.innerHTML = html;
 }
 
-function _wizardCustomTypeChange() {
-  const type = document.getElementById('wiz-goal-type')?.value;
-  const deadlineGroup = document.getElementById('wiz-custom-deadline-group');
-  const rangeGroup    = document.getElementById('wiz-custom-range-group');
-  const habitRow = document.querySelectorAll('#wizard-config-fields .form-row');
-  if (deadlineGroup) deadlineGroup.classList.toggle('hidden', type !== 'achievement');
-  if (rangeGroup)    rangeGroup.classList.toggle('hidden',    type !== 'perpetual');
+function onCustomTypeChange() {
+  const type = document.getElementById('goal-type-select')?.value || 'achievement';
+  document.getElementById('custom-achievement-fields')?.classList.toggle('hidden', type !== 'achievement');
+  document.getElementById('custom-perpetual-fields')?.classList.toggle('hidden',  type !== 'perpetual');
+  document.getElementById('custom-habit-fields')?.classList.toggle('hidden',      type !== 'habit');
 }
 
-function _initWizardConfigForm() {
-  const form = document.getElementById('wizard-config-form');
-  if (!form) return;
-  form.addEventListener('submit', async (e) => {
-    e.preventDefault();
-    const submitBtn  = document.getElementById('wizard-submit');
-    const feedback   = document.getElementById('wizard-feedback');
-    submitBtn.disabled   = true;
-    feedback.textContent = '';
+async function submitAddGoal() {
+  const btn = document.getElementById('goal-submit-btn');
+  const err = document.getElementById('goal-form-error');
+  if (btn) btn.disabled = true;
+  if (err) err.textContent = '';
 
-    try {
-      const template  = _wizardTemplate;
-      const goalType  = template?.goal_type
-        || document.getElementById('wiz-goal-type')?.value
-        || 'achievement';
+  try {
+    const catId    = document.getElementById('goal-category')?.value;
+    const tplId    = document.getElementById('goal-template')?.value;
+    const cat      = _panelTemplates?.[catId];
+    const template = cat?.templates?.find(t => t.id === tplId) || null;
 
-      const title = document.getElementById('wiz-title')?.value.trim();
-      if (!title) { feedback.textContent = 'Title required.'; submitBtn.disabled = false; return; }
+    const title = document.getElementById('goal-title')?.value.trim();
+    if (!title) { if (err) err.textContent = 'Title required.'; return; }
 
-      const description = document.getElementById('wiz-description')?.value.trim() || null;
+    const description = document.getElementById('goal-description')?.value.trim() || null;
 
-      const body = { title, goal_type: goalType, description };
-
-      if (template?.id) body.template_id = template.id;
-
-      // Achievement
-      const tdEl = document.getElementById('wiz-target-date');
-      if (tdEl?.value) body.target_date = tdEl.value;
-
-      // Perpetual
-      const minEl = document.getElementById('wiz-target-min');
-      const maxEl = document.getElementById('wiz-target-max');
-      if (minEl?.value !== '') body.target_min = parseFloat(minEl.value);
-      if (maxEl?.value !== '') body.target_max = parseFloat(maxEl.value);
-      if (template?.metric) body.target_metric_type = template.metric;
-
-      // Habit
-      const htEl  = document.getElementById('wiz-habit-type');
-      const huEl  = document.getElementById('wiz-habit-unit');
-      const hpEl  = document.getElementById('wiz-habit-period');
-      const tgtEl = document.getElementById('wiz-habit-target');
-      if (htEl?.value)  body.habit_type   = htEl.value;
-      if (huEl?.value)  body.habit_unit   = huEl.value;
-      if (hpEl?.value)  body.habit_period = hpEl.value;
-      if (tgtEl?.value) body.weekly_target = parseInt(tgtEl.value, 10);
-      if (template?.capture_keywords?.length) body.capture_keywords = template.capture_keywords;
-
-      // Capability fields → append to description
-      const capFields = template?.capability_fields || [];
-      if (capFields.length) {
-        const capLines = capFields
-          .map(f => {
-            const val = document.getElementById(`wiz-cap-${f.id}`)?.value.trim();
-            return val ? `${f.label}: ${val}` : null;
-          })
-          .filter(Boolean);
-        if (capLines.length) {
-          const capNote = 'Capability baseline — ' + capLines.join(', ') + '.';
-          body.description = body.description ? `${body.description} ${capNote}` : capNote;
-        }
-      }
-
-      const res = await fetch('/v1/goals', {
-        method:  'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body:    JSON.stringify(body),
-      });
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({}));
-        throw new Error(err.detail || `HTTP ${res.status}`);
-      }
-      closeAddGoalWizard();
-      await loadGoals();
-    } catch (err) {
-      feedback.textContent = err.message;
-    } finally {
-      submitBtn.disabled = false;
+    let goalType = template?.goal_type || 'achievement';
+    if (!template && catId === '__custom__') {
+      goalType = document.getElementById('goal-type-select')?.value || 'achievement';
     }
-  });
+
+    const body = { title, goal_type: goalType };
+    if (description) body.description = description;
+    if (template?.id) body.template_id = template.id;
+
+    const targetDate = document.getElementById('goal-target-date')?.value;
+    if (targetDate) body.target_date = targetDate;
+
+    const minVal = document.getElementById('goal-target-min')?.value;
+    const maxVal = document.getElementById('goal-target-max')?.value;
+    if (minVal !== '' && minVal != null) body.target_min = parseFloat(minVal);
+    if (maxVal !== '' && maxVal != null) body.target_max = parseFloat(maxVal);
+    if (template?.metric) body.target_metric_type = template.metric;
+
+    const habitTarget = document.getElementById('goal-habit-target')?.value;
+    const habitUnit   = document.getElementById('goal-habit-unit')?.value;
+    if (habitTarget) body.weekly_target = parseInt(habitTarget, 10);
+    if (habitUnit)   body.habit_unit    = habitUnit;
+    if (template?.habit_type)   body.habit_type   = template.habit_type;
+    if (template?.habit_period) body.habit_period = template.habit_period;
+    if (template?.capture_keywords?.length) body.capture_keywords = template.capture_keywords;
+
+    const res = await fetch('/v1/goals', {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify(body),
+    });
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      throw new Error(data.detail || `HTTP ${res.status}`);
+    }
+    closeAddGoalPanel();
+    await loadGoals();
+  } catch (e) {
+    if (err) err.textContent = e.message;
+  } finally {
+    if (btn) btn.disabled = false;
+  }
 }
 
 // ── Habit card rendering (type-aware) ─────────────────────────────────────────
@@ -1224,6 +1139,8 @@ async function logHabitValue(goalId, btn, inputId) {
 
 document.addEventListener('DOMContentLoaded', () => {
   initCaptureBar();
-  _initWizardConfigForm();
   document.addEventListener('click', closeMsDropdown);
+
+  document.getElementById('add-goal-btn')
+    .addEventListener('click', openAddGoalPanel);
 });

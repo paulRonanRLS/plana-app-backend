@@ -17,8 +17,8 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
-    op.execute("CREATE TYPE IF NOT EXISTS habittype AS ENUM ('count', 'duration', 'consistency', 'volume')")
-    op.execute("CREATE TYPE IF NOT EXISTS habitperiod AS ENUM ('day', 'week', 'month')")
+    op.execute("DO $$ BEGIN CREATE TYPE habittype AS ENUM ('count', 'duration', 'consistency', 'volume'); EXCEPTION WHEN duplicate_object THEN null; END $$")
+    op.execute("DO $$ BEGIN CREATE TYPE habitperiod AS ENUM ('day', 'week', 'month'); EXCEPTION WHEN duplicate_object THEN null; END $$")
 
     op.add_column('goals', sa.Column('template_id', sa.String(100), nullable=True))
     op.add_column('goals', sa.Column(

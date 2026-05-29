@@ -4,7 +4,7 @@ from typing import Optional
 from fastapi import HTTPException
 from sqlalchemy.orm import Session
 
-from app.models.goal import Goal, GoalState
+from app.models.goal import Goal, GoalState, GoalType
 from app.models.resource_profile import ResourceProfile
 
 
@@ -282,6 +282,19 @@ def upsert_resource_profile(
     db.commit()
     db.refresh(profile)
     return profile
+
+
+def get_active_perpetual_goals_by_metric(db: Session, metric_type: str) -> list[Goal]:
+    """Return active (non-terminal) perpetual goals tracking the given metric type."""
+    return (
+        db.query(Goal)
+        .filter(
+            Goal.goal_type == GoalType.perpetual,
+            Goal.target_metric_type == metric_type,
+            Goal.state.notin_(list(TERMINAL_STATES)),
+        )
+        .all()
+    )
 
 
 def get_committed_resources(db: Session) -> dict:
