@@ -12,19 +12,9 @@ import anthropic
 
 logger = logging.getLogger(__name__)
 
-INTENTS = frozenset({
-    "morning_checkin",
-    "progress_capture",
-    "physical_state",
-    "illness_log",
-    "metric_log",
-    "goal_query",
-    "activity_query",
-    "sacrifice_log",
-    "milestone_complete",
-    "goal_state_change",
-    "free_response",
-})
+from app.bot.handlers import REGISTRY  # noqa: E402 (import after package-level setup)
+
+INTENTS = REGISTRY.all_intents()
 
 _USER_TEMPLATE = """\
 Classify this message into exactly one intent:

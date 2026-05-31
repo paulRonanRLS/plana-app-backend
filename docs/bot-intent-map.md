@@ -1,8 +1,8 @@
 # planA Telegram Bot — Intent Map
 
 Current as of: 2026-05-29  
-Source files: `app/bot/handler.py`, `app/bot/intent.py`, `app/bot/session.py`,  
-`app/intelligence/checkin.py`, `app/intelligence/goal_query.py`,  
+Source files: `app/bot/handler.py`, `app/bot/handlers/` (11 handler files), `app/bot/intent.py`,  
+`app/bot/session.py`, `app/intelligence/checkin.py`, `app/intelligence/goal_query.py`,  
 `app/intelligence/activity_query.py`, `app/services/capture.py`,  
 `app/bot/outreach.py`, `app/ingestion/scheduler.py`
 
@@ -15,15 +15,21 @@ Every incoming text message passes through `classify_intent_with_confidence()` f
 **CLAUDE_ENABLED=true** — one Claude call returning `{"intent": "<label>", "confidence": 0.0–1.0}`.  
 **CLAUDE_ENABLED=false** — keyword stub (see `_stub_classify`). Fixed confidence values per intent.
 
-The result is one of eight labels. Then the morning override fires:
+The result is one of eleven labels. Then the morning override fires:
 
 ```
 if is_morning (before 10am) and intent != "free_response":
+    original_intent = intent        ← saved before override
     intent = "morning_checkin"
 ```
 
 This override is unconditional — physical_state, metric_log, illness_log, activity_query, and
-progress_capture are all silently reassigned to morning_checkin before 10am.
+progress_capture are all reassigned to morning_checkin before 10am. `original_intent` is preserved
+and passed to `MorningCheckinHandler`, which uses it to write the original capture to the DB before
+building the check-in response.
+
+After classification and morning override, the message is dispatched to the appropriate handler
+via `REGISTRY.get(intent)`. Each intent has its own handler class in `app/bot/handlers/`.
 
 ---
 
@@ -44,7 +50,9 @@ regardless of what the message actually says.
 - Last 20 session messages for conversational continuity
 
 **What gets written to the database**  
-Nothing.
+If `original_intent` is `physical_state`, `illness_log`, or `metric_log`, the corresponding
+capture service is called before the check-in response is built. This preserves pre-10am health
+reports even when intent is overridden.
 
 **What the response looks like**  
 Conversational check-in question from Claude — asks about physical and mental state, probes
@@ -52,11 +60,12 @@ capacity vs commitments. One question at a time, max 400 tokens.
 Stub: `"Good morning. How are you feeling today — physically and mentally? Good, neutral, or flat?"`
 
 **Known gaps**  
-- Physical state, illness, and metric data reported before 10am are never written to the DB.
-  The intent override happens before `_write_capture()` is called, so they disappear silently.
 - The check-in has no memory of yesterday's session unless Redis is live and the session
   hasn't expired (30-min TTL). A morning gap in conversation = cold start every day.
 - No explicit end to the check-in conversation — it runs until something else is sent after 10am.
+- The check-in system prompt doesn't explicitly acknowledge the physical/illness/metric
+  data that was written from `original_intent` — it just runs the check-in format. The DB write
+  happens correctly; the response doesn't reference it.
 
 ---
 
@@ -73,7 +82,7 @@ None. Goal matching is done in the service layer — no LLM call for this intent
 **What gets written to the database**  
 `MetricReading(metric_type=habit_log, source=telegram)`:
 - Matched: `text_value=str(goal_id)`, `notes=JSON{"goal_id": id, "text": original_text}`
-- Unmatched (any confidence): nothing written yet — sets `bot:pending_capture` in Redis instead
+- Unmatched: nothing written yet — sets `bot:pending_capture` in Redis and asks which goal
 
 **Goal matching logic**  
 1. `match_goal_by_keywords(text, goals)` — checks `goal.capture_keywords` JSON array, word-boundary match
@@ -86,8 +95,6 @@ None. Goal matching is done in the service layer — no LLM call for this intent
 - Low confidence, no match: `"Which goal was that for?"`
 
 **Known gaps**  
-- The pending-capture resolution path (free_response → pending) only uses `match_goal_title`,
-  not `match_goal_by_keywords`. A keyword-matched goal won't be found in the follow-up.
 - No metric extraction from progress text — distance, duration, TSS in the message are not parsed.
   Everything goes into `text_value` as raw text.
 - No confirmation beyond the one-line reply — no milestone progress triggered.
@@ -100,10 +107,10 @@ None. Goal matching is done in the service layer — no LLM call for this intent
 
 **What triggers it**  
 Messages reporting physical symptoms: "sore legs", "tired", "fatigue", "niggle", "aching".  
-After 10am only — before 10am it gets overridden to morning_checkin.
+After 10am only — before 10am it gets overridden to morning_checkin (but the DB write still fires).
 
 **Data injected into Claude prompt**  
-`_build_system_prompt()` — goals only: state + title, primacy goal flagged. No Garmin data,
+`build_goals_system_prompt()` — goals only: state + title, primacy goal flagged. No Garmin data,
 no resource state.
 
 **What gets written to the database**  
@@ -125,10 +132,10 @@ Stub: `"Noted. Is this affecting today's training?"`
 
 **What triggers it**  
 Messages about being ill: "sick", "ill", "cold", "flu", "fever", "recover".  
-After 10am only.
+After 10am only (but pre-10am DB write fires via original_intent path).
 
 **Data injected into Claude prompt**  
-Same as physical_state — `_build_system_prompt()` with goals only.
+Same as physical_state — `build_goals_system_prompt()` with goals only.
 
 **What gets written to the database**  
 `MetricReading(metric_type=illness_log, source=telegram, text_value=text[:500])`
@@ -149,10 +156,10 @@ Stub: `"Got it. How long have you been feeling this way?"`
 **What triggers it**  
 Messages containing a measurable value: "75.2kg", "3 units", "drank 2 glasses of wine".  
 Stub classifier triggers on: kg / lb / weight / unit / units / drink / alcohol / drank.  
-After 10am only.
+After 10am only (but pre-10am DB write fires via original_intent path).
 
 **Data injected into Claude prompt**  
-`_build_system_prompt()` — goals only.
+`build_goals_system_prompt()` — goals only.
 
 **What gets written to the database**  
 `_parse_metric()` dispatches:
@@ -170,7 +177,6 @@ Stub: `"Logged."`
 - Only weight and alcohol are dispatched to typed metric rows. "My resting HR is 52", "HRV 58
   this morning", "sleep 7.5 hours" — all land in habit_log with no metric_type.
 - No validation of the extracted number or unit coherence.
-- Before 10am, the intent is forced to morning_checkin and nothing is written.
 
 ---
 
@@ -247,37 +253,135 @@ Stub: formatted bullet list of matched activities.
 
 ---
 
-### 8. `free_response`
+### 8. `sacrifice_log`
+
+**What triggers it**  
+Messages reporting a skipped commitment: "sacrificed my run for work", "skipped training because
+of meetings", "missed my long ride this weekend".  
+Stub classifier triggers on: sacrificed / skipped my / missed my / had to skip / couldn't do /
+gave up my / skipped training / skipped the.  
+Checked before `progress_capture` in the stub classifier to avoid ambiguity.
+
+**Data injected into Claude prompt**  
+None. All routing is deterministic.
+
+**What gets written to the database**  
+`Sacrifice(goal_id, resource, notes)`:
+- `resource` is inferred via keyword rules in `extract_resource_from_text()`:
+  - work / meeting / deadline / busy / job → `time`
+  - tired / exhausted / sore / sleep / recover → `recovery`
+  - distracted / focus / mind / attention → `attention`
+  - motivation / willpower / discipline / mental → `willpower`
+  - default → `time`
+- Written only if a goal is matched. No sacrifice row if no goal match.
+
+**What the response looks like**  
+- Goal matched: `"Logged — sacrifice attributed to {resource}. {goal} sacrifice count now {N}."`
+- No goal matched: `"Sacrifice noted — which goal did it affect?"`
+
+**Known gaps**  
+- No follow-up loop when a goal isn't matched — if the user replies with the goal name, it's
+  classified as free_response and the sacrifice is lost (no pending_sacrifice state exists).
+- Resource inference is simple keyword rules with no nuance — "I was too tired from work" could
+  plausibly be either recovery or time but will always resolve to physical state keywords first.
+- No Strava cross-reference — if the user missed a planned ride, the absence isn't confirmed
+  against the activity log; it's just taken at face value.
+
+---
+
+### 9. `milestone_complete`
+
+**What triggers it**  
+Messages reporting milestone completion: "just finished my foundation milestone", "hit my 18km
+milestone today", "done with the long run block".  
+Stub classifier requires: completion verb (completed / finished / hit my / done with / achieved)
+AND the word "milestone".
+
+**Data injected into Claude prompt**  
+None. All routing is deterministic.
+
+**What gets written to the database**  
+`Milestone(state=achieved)` via `update_milestone()`, if matched.
+
+**What the response looks like**  
+- Match found, more milestones remain: `"Milestone marked complete. {next} is next — due {date}."`
+- Match found, last milestone: `"Milestone marked complete. No more pending milestones for that goal."`
+- No match: `"I couldn't match that to a milestone — which one did you complete?"`
+
+**Known gaps**  
+- Matching is word-boundary on milestone titles only. If the user refers to a milestone by
+  description rather than its exact title, it won't match.
+- No pending state for the "which one?" case — if the user replies with the title, it's
+  classified as free_response with no action.
+- No Telegram notification at the time of Strava-triggered milestone completion (those go through
+  a separate scheduler path) — so this intent only handles user-reported completions.
+
+---
+
+### 10. `goal_state_change`
+
+**What triggers it**  
+Messages requesting a goal priority change: "set cycling as my planA", "make training subordinate
+now", "back to active please".  
+Stub classifier triggers on phrases: "set as my plana" / "set as plana" / "make my plana" /
+"as my plana" / "as my priority goal" / "set as priority" / "make subordinate" / "subordinate now" /
+"back to active" / "set active" / "set as active".
+
+**Data injected into Claude prompt**  
+None. All routing is deterministic.
+
+**What gets written to the database**  
+`Goal(state=…)` via the lifecycle service:
+- "primacy" → `goal_service.set_primacy()`
+- "active" → `goal_service.activate_goal()`
+- "subordinate" → `goal_service.set_subordinate()`
+- "drifting" → `goal_service.mark_drifting()`
+
+The lifecycle service enforces valid transitions. Invalid transitions raise an HTTPException
+which is caught and returned as a message.
+
+**What the response looks like**  
+- Both goal and state matched: `"Done — {goal} is now {state}."`
+- Goal not matched: `"Which goal did you want to change the state of?"`
+- State not matched: `"What state? (planA, active, subordinate)"`
+- Invalid transition: `"Couldn't change state: {error detail}"`
+
+**Known gaps**  
+- No pending state for the clarification cases — if the user answers "which goal?", their reply
+  is free_response with no action.
+- The stub classifier requires exact multi-word phrases; slight rewording ("put it as planA",
+  "go back to active") won't match.
+- `released` and `completed` are not accepted target states. There's no bot path to lifecycle-end
+  a goal — that requires the web UI or direct API call.
+
+---
+
+### 11. `free_response`
 
 **What triggers it**  
 Anything not matched by the other classifiers — conversation continuations, replies to bot
-questions, vague or ambiguous messages. Also explicitly: replies after 10am when a pending
-capture is awaiting goal confirmation.
+questions, vague or ambiguous messages.
 
 **Two sub-paths:**
 
 **A. Pending capture resolution** (when `bot:pending_capture` exists)  
-- Tries `match_goal_title(text, goals)` on the user's reply
+- Tries `match_goal_by_keywords(text, goals)` first, then `match_goal_title(text, goals)`
 - Match found: writes `MetricReading(metric_type=habit_log)` with goal_id, clears pending, replies `"Logged for {title}."`
-- No match: clears pending, drops the capture, falls through to sub-path B
+- No match: clears pending silently, falls through to sub-path B
 
 **B. Ordinary free_response**  
-- Data injected: `_build_system_prompt()` — goals state+title, primacy goal flagged. Nothing else.
+- Data injected: `build_goals_system_prompt()` — goals state+title, primacy goal flagged. Nothing else.
 - Response: Claude conversational reply, max 400 tokens.
 - Stub: `"Tell me more."`
 
 **What gets written to the database**  
-Nothing (unless resolving a pending capture, which writes habit_log).
+Nothing unless resolving a pending capture, which writes habit_log.
 
 **Known gaps**  
-- Replies to drift/fade alert messages ("yes, I want to review it") land here with no special
-  handling — generic conversational reply, no goal state change, no follow-through action.
-- No sacrifice logging path — "I skipped training to deal with work" is free_response with
-  no DB write and no resource attribution.
-- Pending capture resolution uses only title matching (not keyword matching). If the user
-  types a keyword that would have matched in the original classification, it won't resolve here.
+- Pending capture resolution silently drops the capture on no-match. The user receives a generic
+  reply with no indication their progress report was lost.
 - Generic system prompt has no resource data, Garmin readings, or milestone detail — resource
-  or check-in questions as follow-ups in a free conversation get an uninformed answer.
+  or check-in follow-up questions in free conversation get an uninformed answer.
 
 ---
 
@@ -303,11 +407,17 @@ Do you want to review this goal?
 ```
 
 **What gets written to the database**  
-Nothing. The goal state is NOT automatically changed to `drifting`.
+The outreach function writes `{"goal_id": id, "alert_type": "drift"}` to `bot:pending_alert` in Redis.
 
-**Gap** — The message asks "Do you want to review?" but a yes reply has no handler.
-It will be classified as free_response and get a generic answer. The drift alert is
-informational only — no follow-through loop.
+**Reply handling**  
+A yes reply (contains: yes / review / yeah / yep / please / sure / ok / okay) calls
+`goal_query_module.build_response()` for the alerted goal and clears the pending alert.  
+A no reply returns `"Noted."` and clears the pending alert.  
+Any other reply leaves the alert in place and falls through to normal routing.
+
+**Gap** — No automatic state change to `drifting` even on a yes reply — the user just gets a
+goal summary. They have to issue a separate `goal_state_change` message to move the goal to
+drifting state.
 
 ---
 
@@ -328,10 +438,13 @@ Is this goal still a priority?
 ```
 
 **What gets written to the database**  
-Nothing.
+The outreach function writes `{"goal_id": id, "alert_type": "fade"}` to `bot:pending_alert` in Redis.
 
-**Gap** — Same as drift alert: the yes/no reply lands in free_response with no action.
-Also: fade suppression is too broad — a progress capture for goal A resets the fade
+**Reply handling**  
+Same as drift alert — yes returns a goal summary, no returns "Noted.".
+
+**Gap** — Same bot:pending_alert key as drift: if both fire before the user replies, the second
+overwrites the first. Also: fade suppression is too broad — a capture for goal A resets the fade
 clock for goal B.
 
 ---
@@ -359,16 +472,14 @@ receive only a generic conversational reply:
 
 | Message type | Example | Should be | Gap |
 |---|---|---|---|
-| Reply to drift alert | "Yes, review it" | Set goal to `drifting` state, surface review options | No handler — lands in free_response |
-| Reply to fade alert | "Not really a priority right now" | Offer release flow or acknowledge | No handler — lands in free_response |
-| Sacrifice log | "Skipped gym to deal with work stuff" | Write Sacrifice row, attribute resource | No `sacrifice_log` intent exists |
-| Pre-10am metric | "HRV 58 this morning" / "slept 7 hours" | Write MetricReading before morning check-in | Morning override drops the write |
-| Milestone completion | "Just ticked off the foundation block" | Mark milestone achieved | No `milestone_complete` intent exists |
-| Goal state change via chat | "Set cycling as my planA goal" | PATCH goal state | Classified as goal_query; no action taken |
+| Sacrifice with no goal match | "Skipped my long run" (no goal name found) | Pending sacrifice, ask which goal | No pending_sacrifice state; reply lands in free_response |
+| Milestone complete with no title match | "Done with phase one" (title is "Foundation") | Pending milestone, ask which | No pending_milestone state; free_response |
+| Goal state change — clarification reply | User answered "which goal?" with a name | Retry goal_state_change | free_response, no action |
 | Typed metric: resting HR / HRV | "My resting HR is 52" | Write `resting_hr` MetricReading | Falls to `habit_log` in `_parse_metric()` |
 | Activity query without query-starter | "My ride on Sunday, what was the TSS?" | activity_query | Stub classifier requires query-start word |
 | Activity query beyond yesterday default | "What did I do in April?" | activity_query with month range | Date parser has no month/N-day-range support |
 | Sacrifice acknowledgement in check-in | "I've been skipping runs for work" | Prompt for sacrifice attribution | No sacrifice capture in morning flow |
+| Typed metric: sleep / HRV | "HRV 58 this morning" | Write `hrv` MetricReading | Falls to `habit_log` |
 
 ---
 
@@ -377,7 +488,9 @@ receive only a generic conversational reply:
 | Key | Store | TTL | Content |
 |---|---|---|---|
 | `bot:session` | Redis | 30 min (reset on every message) | JSON list of `{role, content}` dicts — last 20 used |
-| `bot:pending_capture` | Redis | 30 min (same TTL as session) | `{text: str, confidence: float}` for a progress capture awaiting goal confirmation |
+| `bot:pending_capture` | Redis | 30 min | `{text: str, confidence: float}` — a progress capture awaiting goal confirmation |
+| `bot:pending_alert` | Redis | 30 min | `{goal_id: int, alert_type: "drift"\|"fade"}` — a proactive alert awaiting yes/no reply |
 
 When Redis is unavailable (`REDIS_ENABLED=false`): session is always empty (cold start every message),
-pending captures can't be stored (progress captures with no title match are silently lost).
+pending captures can't be stored (progress captures with no title match are silently lost),
+and pending alerts can't be stored (drift/fade replies fall through to free_response).
