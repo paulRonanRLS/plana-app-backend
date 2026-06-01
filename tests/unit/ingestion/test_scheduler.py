@@ -3,9 +3,9 @@
 from app.ingestion.scheduler import create_scheduler
 
 
-def test_scheduler_has_five_jobs():
+def test_scheduler_has_six_jobs():
     scheduler = create_scheduler()
-    assert len(scheduler.get_jobs()) == 5
+    assert len(scheduler.get_jobs()) == 6
 
 
 def test_scheduler_has_garmin_poll_job():
@@ -18,6 +18,12 @@ def test_scheduler_has_garmin_backstop_job():
     scheduler = create_scheduler()
     job_ids = {job.id for job in scheduler.get_jobs()}
     assert "garmin_backstop" in job_ids
+
+
+def test_scheduler_has_garmin_backstop_0730_job():
+    scheduler = create_scheduler()
+    job_ids = {job.id for job in scheduler.get_jobs()}
+    assert "garmin_backstop_0730" in job_ids
 
 
 def test_scheduler_has_strava_poll_job():

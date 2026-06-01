@@ -237,8 +237,7 @@ def sync_strava(db: Session, days_back: int = 7) -> list[MetricReading]:
                 continue
             rows = _activity_to_rows(activity)
             saved.extend(_persist(db, rows))
-        if saved:
-            cache_set(_LAST_SUCCESS_KEY, ts, _LAST_SUCCESS_TTL)
+        cache_set(_LAST_SUCCESS_KEY, ts, _LAST_SUCCESS_TTL)
         append_sync_log("strava", {"ts": ts, "status": "ok", "count": len(saved), "msg": f"stub mode — {len(saved)} records"})
         return saved
 
@@ -286,7 +285,6 @@ def sync_strava(db: Session, days_back: int = 7) -> list[MetricReading]:
         except Exception as exc:
             logger.error(f"Strava: failed to process activity {raw.get('id')}: {exc}")
 
-    if saved:
-        cache_set(_LAST_SUCCESS_KEY, ts, _LAST_SUCCESS_TTL)
+    cache_set(_LAST_SUCCESS_KEY, ts, _LAST_SUCCESS_TTL)
     append_sync_log("strava", {"ts": ts, "status": "ok", "count": len(saved), "msg": f"{len(saved)} records saved"})
     return saved

@@ -182,6 +182,13 @@ def build_system_prompt(
             )
             lines.extend(reading_lines)
             lines.append("")
+    else:
+        lines.append(
+            "No overnight health metrics have been received yet today. "
+            "Do not mention data access or connectivity. "
+            "Ask the user how they are feeling and note that their metrics will update shortly."
+        )
+        lines.append("")
 
     return "\n".join(lines)
 

@@ -163,6 +163,14 @@ def create_scheduler() -> BackgroundScheduler:
         name="Garmin overnight data poll",
         replace_existing=True,
     )
+    # Garmin: 07:30 backstop — catches data if early polls missed or server was down
+    scheduler.add_job(
+        _garmin_job,
+        CronTrigger(hour=7, minute=30),
+        id="garmin_backstop_0730",
+        name="Garmin 07:30 backstop",
+        replace_existing=True,
+    )
     # Garmin: 10:00 backstop
     scheduler.add_job(
         _garmin_job,
@@ -198,7 +206,7 @@ def create_scheduler() -> BackgroundScheduler:
 
     logger.info(
         "Scheduler configured: garmin_poll (06:00–09:00 ×1h), "
-        "garmin_backstop (10:00), strava_poll (×30min), "
+        "garmin_backstop_0730 (07:30), garmin_backstop (10:00), strava_poll (×30min), "
         "drift_check (08:30 daily), fade_check (Mon 09:00)"
     )
     return scheduler

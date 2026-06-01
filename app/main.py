@@ -76,11 +76,7 @@ def _check_redis() -> None:
 
 
 def _startup_garmin_catchup() -> None:
-    """Sync Garmin data on startup if today's readings are missing and it's past 06:00 local."""
-    if datetime.now().hour < 6:
-        logger.info("Startup: Garmin catch-up skipped (before 06:00)")
-        return
-
+    """Sync Garmin data on startup if today's readings are missing."""
     from app.database import SessionLocal
     from app.models.metric_reading import MetricReading, MetricSource
 
@@ -96,13 +92,13 @@ def _startup_garmin_catchup() -> None:
             .count()
         )
         if count > 0:
-            logger.info(f"Startup: Garmin data present ({count} readings today) — no catch-up needed")
+            logger.info(f"Startup Garmin catch-up: today's data already present, skipping")
             return
 
-        logger.info("Startup: No today's Garmin data — triggering catch-up sync")
+        logger.info("Startup Garmin catch-up: running sync...")
         from app.ingestion.garmin import sync_garmin
         rows = sync_garmin(db)
-        logger.info(f"Startup: Garmin catch-up synced {len(rows)} readings")
+        logger.info(f"Startup Garmin catch-up: synced {len(rows)} readings")
     except Exception as exc:
         logger.error(f"Startup: Garmin catch-up failed: {exc}", exc_info=True)
     finally:
@@ -129,7 +125,7 @@ async def lifespan(app: FastAPI):
     from app.ingestion.scheduler import create_scheduler
     scheduler = create_scheduler()
     scheduler.start()
-    print("  Scheduler: garmin (06:00–09:00 ×1h + 10:00 backstop), strava (×30min), drift (08:30 daily), fade (Mon 09:00)")
+    print("  Scheduler: garmin (06:00–09:00 ×1h + 07:30 + 10:00 backstops), strava (×30min), drift (08:30 daily), fade (Mon 09:00)")
 
     # ── Telegram bot ───────────────────────────────────────────────────────────
     bot_app = None
