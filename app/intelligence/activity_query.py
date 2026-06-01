@@ -40,6 +40,7 @@ def build_response(
             max_tokens=MAX_TOKENS,
             system=_SYSTEM_PROMPT,
             messages=[{"role": "user", "content": prompt}],
+            timeout=30.0,
         )
         return resp.content[0].text.strip()
     except Exception as e:

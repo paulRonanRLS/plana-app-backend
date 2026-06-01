@@ -224,6 +224,7 @@ def build_response(
             max_tokens=MAX_TOKENS,
             system=system,
             messages=messages[-20:],
+            timeout=30.0,
         )
         return resp.content[0].text.strip()
     except Exception as e:

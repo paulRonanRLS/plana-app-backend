@@ -52,6 +52,7 @@ def classify_intent(
             model="claude-sonnet-4-6",
             max_tokens=20,
             messages=[{"role": "user", "content": _USER_TEMPLATE.format(text=text)}],
+            timeout=15.0,
         )
         label = resp.content[0].text.strip().lower()
         if label in INTENTS:
@@ -116,6 +117,7 @@ def classify_intent_with_confidence(
             model="claude-sonnet-4-6",
             max_tokens=40,
             messages=[{"role": "user", "content": _USER_TEMPLATE_CONFIDENCE.format(text=text)}],
+            timeout=15.0,
         )
         raw = resp.content[0].text.strip()
         data = json.loads(raw)

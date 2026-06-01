@@ -40,3 +40,6 @@ alembic/versions/__pycache__/
 htmlcov/
 .pytest_cache/
 .env
+
+# Logs
+logs/

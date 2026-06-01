@@ -106,6 +106,7 @@ async def claude_response(messages: list, system_prompt: str, client) -> str:
             max_tokens=400,
             system=system_prompt,
             messages=trimmed,
+            timeout=30.0,
         )
         return resp.content[0].text.strip()
     except Exception as e:

@@ -2,14 +2,30 @@ import logging
 import sys
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
+from logging.handlers import RotatingFileHandler
 from pathlib import Path
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s %(levelname)-8s %(name)s — %(message)s",
+_LOG_DIR = Path(__file__).parent.parent / "logs"
+_LOG_DIR.mkdir(exist_ok=True)
+
+_fmt = logging.Formatter(
+    fmt="%(asctime)s %(levelname)-8s %(name)s — %(message)s",
     datefmt="%Y-%m-%d %H:%M:%S",
-    stream=sys.stdout,
 )
+
+_console = logging.StreamHandler(sys.stdout)
+_console.setFormatter(_fmt)
+
+_file = RotatingFileHandler(
+    _LOG_DIR / "plana.log",
+    maxBytes=5 * 1024 * 1024,  # 5 MB per file
+    backupCount=5,
+    encoding="utf-8",
+)
+_file.setFormatter(_fmt)
+
+logging.basicConfig(level=logging.INFO, handlers=[_console, _file])
+logging.getLogger("httpx").setLevel(logging.WARNING)
 
 import tomllib
 from fastapi import FastAPI
