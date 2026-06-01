@@ -42,6 +42,7 @@
     }
 
     .connector-meta .sync-age { font-style: italic; }
+    .connector-meta .next-run { color: var(--text-secondary); font-size: 0.775rem; }
 
     .connector-stat {
       font-size: 0.825rem;
@@ -214,6 +215,35 @@ function syncAgeText(iso) {
   return `${days} day${days === 1 ? '' : 's'} since last sync`;
 }
 
+function nextRunText(iso) {
+  if (!iso) return null;
+  const now = Date.now();
+  const next = new Date(iso).getTime();
+  const diffMs = next - now;
+  if (diffMs <= 0) return 'due soon';
+  const diffMins = Math.round(diffMs / 60_000);
+  if (diffMins < 60) return `in ${diffMins} min${diffMins === 1 ? '' : 's'}`;
+  const diffHrs = Math.floor(diffMs / 3_600_000);
+  if (diffHrs < 12) return `in ${diffHrs} hr${diffHrs === 1 ? '' : 's'}`;
+  const nextDate = new Date(iso);
+  const todayMidnight = new Date(); todayMidnight.setHours(0, 0, 0, 0);
+  const nextMidnight = new Date(nextDate); nextMidnight.setHours(0, 0, 0, 0);
+  const dayDiff = Math.round((nextMidnight - todayMidnight) / 86_400_000);
+  const hhmm = nextDate.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
+  if (dayDiff === 1) return `tomorrow ${hhmm}`;
+  return `${nextDate.toLocaleDateString(undefined, { weekday: 'short' })} ${hhmm}`;
+}
+
+function nearestNextRun(isoList) {
+  const now = Date.now();
+  const candidates = isoList
+    .filter(Boolean)
+    .map(t => new Date(t).getTime())
+    .filter(t => t > now);
+  if (!candidates.length) return null;
+  return new Date(Math.min(...candidates)).toISOString();
+}
+
 function renderLog(entries) {
   if (!entries || entries.length === 0) {
     return '<p style="font-size:0.8rem;color:var(--text-secondary);margin-top:0.5rem">No attempts recorded yet.</p>';
@@ -248,13 +278,15 @@ function startCooldown(source, btn, label) {
   }, 500);
 }
 
-function renderConnector(source, data) {
+function renderConnector(source, data, nextRunIso) {
   const ageText = syncAgeText(data.last_sync);
   const lastSyncStr = formatTs(data.last_sync);
+  const nextText = nextRunText(nextRunIso);
 
   const metaLines = [
     lastSyncStr ? `<span>Last sync: ${lastSyncStr}</span>` : '<span>Never synced</span>',
     ageText ? `<span class="sync-age">${ageText}</span>` : '',
+    nextText ? `<span class="next-run">Next sync: ${nextText}</span>` : '',
   ].filter(Boolean).join('');
 
   const card = document.createElement('div');
@@ -310,13 +342,25 @@ function renderConnector(source, data) {
 
 async function loadStatus() {
   try {
-    const resp = await fetch('/v1/connectors/status');
-    const data = await resp.json();
+    const [statusResp, schedResp] = await Promise.all([
+      fetch('/v1/connectors/status'),
+      fetch('/v1/connectors/schedule'),
+    ]);
+    const data = await statusResp.json();
+    const sched = schedResp.ok ? await schedResp.json() : {};
+
+    const garminNext = nearestNextRun([
+      sched.garmin_poll?.next_run,
+      sched.garmin_backstop_0730?.next_run,
+      sched.garmin_backstop?.next_run,
+    ]);
+    const stravaNext = sched.strava_poll?.next_run ?? null;
+    const nextRuns = { garmin: garminNext, strava: stravaNext };
 
     const grid = document.getElementById('connector-grid');
     grid.innerHTML = '';
     for (const source of ['garmin', 'strava']) {
-      grid.appendChild(renderConnector(source, data[source]));
+      grid.appendChild(renderConnector(source, data[source], nextRuns[source]));
     }
 
     const labels = { garmin: 'Garmin', strava: 'Strava', manual: 'Manual', telegram: 'Telegram' };

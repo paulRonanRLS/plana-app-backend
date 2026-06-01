@@ -5,7 +5,7 @@ import logging
 from datetime import date, datetime, timedelta, timezone
 from typing import Optional
 
-from fastapi import APIRouter, Body, Depends, HTTPException
+from fastapi import APIRouter, Body, Depends, HTTPException, Request
 from fastapi.responses import RedirectResponse
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
@@ -1097,6 +1097,29 @@ def get_connectors_status(db: Session = Depends(get_db)):
             "telegram": _record_count(MetricSource.telegram),
         },
     }
+
+
+_SCHEDULE_JOB_IDS = [
+    "garmin_poll",
+    "garmin_backstop_0730",
+    "garmin_backstop",
+    "strava_poll",
+]
+
+
+@router.get("/v1/connectors/schedule")
+def get_connectors_schedule(request: Request):
+    """Return next scheduled run time for each ingestion job."""
+    scheduler = getattr(request.app.state, "scheduler", None)
+    result = {}
+    for job_id in _SCHEDULE_JOB_IDS:
+        next_run = None
+        if scheduler is not None:
+            job = scheduler.get_job(job_id)
+            if job and job.next_run_time:
+                next_run = job.next_run_time.isoformat()
+        result[job_id] = {"next_run": next_run}
+    return result
 
 
 @router.post("/v1/admin/sync/garmin")
