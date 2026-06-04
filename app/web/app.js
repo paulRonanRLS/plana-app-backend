@@ -592,7 +592,9 @@ async function logHabit(goalId, btn, value) {
 }
 
 function toggleGoal(header) {
-  const body = header.nextElementSibling;
+  const card = header.closest('.goal-card');
+  if (!card) return;
+  const body = card.querySelector('.goal-card-body');
   const chevron = header.querySelector('.chevron');
   if (!body) return;
   const open = body.classList.toggle('open');

@@ -27,14 +27,21 @@ def _fmt_date(d: date) -> str:
 def _query_habit_counts(db, goals: list) -> dict[int, int]:
     """Return {goal_id: count} of habit_log records this week per goal.
 
-    Only counts records where text_value is the numeric goal ID string,
-    matching the attribution written by capture.record_progress.
+    Attribution is stored in two ways:
+      1. text_value == str(goal_id)  — web app tick and Telegram captures that
+         matched a goal (record_progress with goal_id; web log_habit endpoint)
+      2. notes JSON contains {"goal_id": <int>}  — same records, notes confirms it
+
+    Unattributed habit_logs (metric_log fallback, no goal match) have raw text
+    in text_value and notes=None — these cannot be counted per goal.
+
     Returns an empty dict on any error or when db is None.
     """
     if db is None:
         return {}
     try:
         from app.models.metric_reading import MetricReading, MetricType
+        import json as _json
 
         monday, _ = _week_bounds()
         week_start = datetime.combine(monday, datetime.min.time()).replace(tzinfo=timezone.utc)
@@ -44,22 +51,52 @@ def _query_habit_counts(db, goals: list) -> dict[int, int]:
         if not goal_id_strings:
             return {}
 
+        logger.debug(
+            f"Habit count query: week {week_start.date()} – {week_end.date()}, "
+            f"searching for goal IDs {goal_id_strings} "
+            f"({', '.join(f'{g.id}={g.title!r}' for g in goals if g.id is not None)})"
+        )
+
         rows = (
             db.query(MetricReading)
             .filter(
                 MetricReading.metric_type == MetricType.habit_log,
-                MetricReading.text_value.in_(goal_id_strings),
                 MetricReading.timestamp >= week_start,
                 MetricReading.timestamp < week_end,
             )
             .all()
         )
+
+        logger.debug(
+            f"Habit count query: {len(rows)} habit_log rows this week total "
+            f"(all sources, before goal-id filter)"
+        )
+        for row in rows:
+            logger.debug(
+                f"  row id={row.id} ts={row.timestamp.date()} source={row.source} "
+                f"text_value={row.text_value!r} val={row.value} notes={row.notes!r}"
+            )
+
         counts: dict[int, int] = defaultdict(int)
         for row in rows:
-            try:
-                counts[int(row.text_value)] += 1
-            except (ValueError, TypeError):
-                pass
+            # Primary path: text_value is the numeric goal ID
+            if row.text_value in goal_id_strings:
+                try:
+                    counts[int(row.text_value)] += 1
+                    continue
+                except (ValueError, TypeError):
+                    pass
+            # Secondary path: goal_id stored in notes JSON
+            if row.notes:
+                try:
+                    d = _json.loads(row.notes)
+                    gid = d.get("goal_id")
+                    if gid is not None and str(gid) in goal_id_strings:
+                        counts[int(gid)] += 1
+                except (ValueError, TypeError, AttributeError):
+                    pass
+
+        logger.debug(f"Habit count query result: {dict(counts)}")
         return dict(counts)
     except Exception as exc:
         logger.warning(f"Habit count query failed: {exc}")
