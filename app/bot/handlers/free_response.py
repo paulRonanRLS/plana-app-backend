@@ -32,7 +32,7 @@ class FreeResponseHandler(IntentHandler):
 
         if ctx.claude_client is None:
             return "Tell me more."
-        system_prompt = build_goals_system_prompt(ctx.goals)
+        system_prompt = build_goals_system_prompt(ctx.goals, ctx.db)
         return await claude_response(ctx.messages, system_prompt, ctx.claude_client)
 
     def uses_pending_capture(self) -> bool:

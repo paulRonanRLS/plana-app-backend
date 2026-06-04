@@ -66,8 +66,10 @@ def write_capture(db, intent: str, text: str) -> None:
         logger.error(f"Capture persist failed for intent={intent}: {e}")
 
 
-def build_goals_system_prompt(goals: list) -> str:
+def build_goals_system_prompt(goals: list, db=None) -> str:
     """Inject current goal state into the system prompt."""
+    from app.intelligence.week_context import build_week_context_lines
+
     active = [g for g in goals if g.state not in TERMINAL_STATES]
     primacy = next((g for g in active if g.state == GoalState.primacy), None)
 
@@ -81,6 +83,8 @@ def build_goals_system_prompt(goals: list) -> str:
         "real database queries and is accurate. Do not retract or second-guess it.",
         "",
     ]
+
+    lines.extend(build_week_context_lines(goals, db=db))
 
     if primacy:
         lines.append(f"Primacy goal (inviolable — no sacrifice expected): {primacy.title}")

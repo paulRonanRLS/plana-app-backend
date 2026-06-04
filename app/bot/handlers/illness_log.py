@@ -15,7 +15,7 @@ class IllnessLogHandler(IntentHandler):
         write_capture(ctx.db, "illness_log", ctx.text)
         if ctx.claude_client is None:
             return "Got it. How long have you been feeling this way?"
-        system_prompt = build_goals_system_prompt(ctx.goals)
+        system_prompt = build_goals_system_prompt(ctx.goals, ctx.db)
         return await claude_response(ctx.messages, system_prompt, ctx.claude_client)
 
     def writes_to_db(self) -> bool:

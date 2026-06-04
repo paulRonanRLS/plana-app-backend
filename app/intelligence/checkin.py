@@ -115,12 +115,15 @@ def build_system_prompt(
     recovery_ratio: Optional[float] = None,
     attention_count: Optional[int] = None,
     garmin_readings: Optional[dict[str, float]] = None,
+    db=None,
 ) -> str:
     """Build a context-rich system prompt for the morning check-in.
 
     Injects goal state, current resource capacity, and today's Garmin
     readings so Claude can reference actual numbers during the check-in.
     """
+    from app.intelligence.week_context import build_week_context_lines
+
     active = [g for g in goals if g.state not in TERMINAL_STATES]
     primacy = next((g for g in active if g.state == GoalState.primacy), None)
 
@@ -137,6 +140,8 @@ def build_system_prompt(
         "- If something signals overload, name it clearly and ask for acknowledgement.",
         "",
     ]
+
+    lines.extend(build_week_context_lines(goals, db=db))
 
     if primacy:
         lines.append(f"Primacy goal (inviolable): {primacy.title}")
@@ -223,6 +228,7 @@ def build_response(
         recovery_ratio=recovery_ratio,
         attention_count=attention_count,
         garmin_readings=garmin_readings,
+        db=db,
     )
 
     try:
