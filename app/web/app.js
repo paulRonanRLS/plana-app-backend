@@ -780,6 +780,35 @@ function renderMilestoneRow(goalId, m) {
         <input type="text" class="ms-edit-title form-input" value="${esc(m.title)}" placeholder="Milestone name">
         <input type="date" class="ms-edit-date form-input" value="${m.target_date || ''}">
       </div>
+      <div class="ms-panel-row ms-tracking-row">
+        <select class="ms-edit-activity-type form-select">
+          <option value="">Activity type</option>
+          <option value="run"  ${m.activity_type === 'run'  ? 'selected' : ''}>Run</option>
+          <option value="ride" ${m.activity_type === 'ride' ? 'selected' : ''}>Ride</option>
+          <option value="swim" ${m.activity_type === 'swim' ? 'selected' : ''}>Swim</option>
+          <option value="walk" ${m.activity_type === 'walk' ? 'selected' : ''}>Walk</option>
+        </select>
+        <select class="ms-edit-progress-type form-select">
+          <option value="">Progress type</option>
+          <option value="single_effort" ${m.progress_type === 'single_effort' ? 'selected' : ''}>Single effort</option>
+          <option value="cumulative"    ${m.progress_type === 'cumulative'    ? 'selected' : ''}>Cumulative</option>
+        </select>
+        <select class="ms-edit-metric form-select">
+          <option value="">Metric</option>
+          <option value="distance_km"  ${m.metric === 'distance_km'  ? 'selected' : ''}>Distance (km)</option>
+          <option value="duration_min" ${m.metric === 'duration_min' ? 'selected' : ''}>Duration (min)</option>
+          <option value="pace_per_km"  ${m.metric === 'pace_per_km'  ? 'selected' : ''}>Pace (min/km)</option>
+          <option value="tss"          ${m.metric === 'tss'          ? 'selected' : ''}>TSS</option>
+          <option value="count"        ${m.metric === 'count'        ? 'selected' : ''}>Count</option>
+        </select>
+        <input type="number" class="ms-edit-target-value form-input" value="${m.target_value ?? ''}" placeholder="Target" min="0" step="0.1">
+        <select class="ms-edit-period form-select">
+          <option value="">Period</option>
+          <option value="week"     ${m.period === 'week'     ? 'selected' : ''}>Week</option>
+          <option value="month"    ${m.period === 'month'    ? 'selected' : ''}>Month</option>
+          <option value="lifetime" ${m.period === 'lifetime' ? 'selected' : ''}>Lifetime</option>
+        </select>
+      </div>
       <div class="ms-panel-actions">
         <button class="btn btn-primary btn-sm" onclick="saveMsEdit(${m.id},${goalId})">Save</button>
         <button class="btn btn-sm" onclick="cancelMsPanel(${m.id})">Cancel</button>
@@ -858,12 +887,22 @@ async function agreeMilestone(mid, goalId) {
 async function saveMsEdit(mid, goalId) {
   const container = document.querySelector(`.ms-container[data-mid="${mid}"]`);
   if (!container) return;
-  const title   = container.querySelector('.ms-edit-title')?.value.trim();
-  const dateVal = container.querySelector('.ms-edit-date')?.value;
+  const title       = container.querySelector('.ms-edit-title')?.value.trim();
+  const dateVal     = container.querySelector('.ms-edit-date')?.value;
+  const actType     = container.querySelector('.ms-edit-activity-type')?.value;
+  const progType    = container.querySelector('.ms-edit-progress-type')?.value;
+  const metric      = container.querySelector('.ms-edit-metric')?.value;
+  const targetVal   = container.querySelector('.ms-edit-target-value')?.value;
+  const period      = container.querySelector('.ms-edit-period')?.value;
   if (!title) return;
 
   const body = { title };
-  if (dateVal) body.target_date = dateVal;
+  if (dateVal)   body.target_date    = dateVal;
+  if (actType)   body.activity_type  = actType;   else body.activity_type  = null;
+  if (progType)  body.progress_type  = progType;  else body.progress_type  = null;
+  if (metric)    body.metric         = metric;     else body.metric         = null;
+  if (targetVal) body.target_value   = parseFloat(targetVal); else body.target_value = null;
+  if (period)    body.period         = period;     else body.period         = null;
 
   const res = await fetch(`/v1/goals/${goalId}/milestones/${mid}`, {
     method: 'PATCH',
@@ -955,18 +994,55 @@ async function saveNewMilestone(goalId, btn) {
 
 async function loadReflection() {
   try {
-    const [d, traj] = await Promise.all([
+    const [d, traj, acts] = await Promise.all([
       apiFetch('/v1/reflection'),
       apiFetch('/v1/reflection/trajectory').catch(() => ({ goals: [] })),
+      apiFetch('/v1/reflection/activities').catch(() => ({ activities: [] })),
     ]);
     renderTrajectory(traj.goals || []);
+    renderActivities(acts.activities || []);
+    renderSacrificePattern(d.sacrifice_pattern || {});
     renderMemoirList('completed-goals', d.completed || []);
     renderMemoirList('released-goals',  d.released  || []);
-    renderSacrificePattern(d.sacrifice_pattern || {});
   } catch (err) {
     document.querySelector('main').innerHTML =
       `<div class="error-state">Failed to load: ${esc(err.message)}</div>`;
   }
+}
+
+const _SPORT_EMOJI = {
+  run:    '🏃',
+  ride:   '🚴',
+  swim:   '🏊',
+  walk:   '🚶',
+  hike:   '🥾',
+  workout:'💪',
+};
+
+function renderActivities(activities) {
+  const el = document.getElementById('recent-activities');
+  if (!el) return;
+  if (!activities.length) {
+    el.innerHTML = '<div class="empty-state">No activities recorded yet.</div>';
+    return;
+  }
+  el.innerHTML = activities.map(a => {
+    const emoji = _SPORT_EMOJI[a.sport_type?.toLowerCase()] || '🏅';
+    const date  = a.date ? fmtDate(a.date) : '';
+    const dist  = a.distance_km != null ? `${a.distance_km.toFixed(1)} km` : '';
+    const tss   = a.tss        != null ? `${Math.round(a.tss)} TSS` : '';
+    const dur   = a.duration_min != null
+      ? (() => { const h = Math.floor(a.duration_min / 60); const m = Math.round(a.duration_min % 60); return h ? `${h}h ${m}m` : `${m}m`; })()
+      : '';
+    const meta  = [dist, dur, tss].filter(Boolean).join(' · ');
+    return `
+      <div class="activity-row">
+        <span class="activity-sport">${emoji}</span>
+        <span class="activity-date">${date}</span>
+        <span class="activity-name">${esc(a.name || '')}</span>
+        <span class="activity-meta">${meta}</span>
+      </div>`;
+  }).join('');
 }
 
 function renderTrajectory(goals) {

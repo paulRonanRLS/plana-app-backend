@@ -765,6 +765,41 @@ def get_goals_summary(db: Session = Depends(get_db)):
     return {"goals": result}
 
 
+@router.get("/v1/reflection/activities")
+def get_reflection_activities(db: Session = Depends(get_db)):
+    """Recent Strava activities from MetricReadings, newest first, limit 20."""
+    rows = (
+        db.query(MetricReading)
+        .filter(
+            MetricReading.source == MetricSource.strava,
+            MetricReading.metric_type == MetricType.activity,
+        )
+        .order_by(MetricReading.timestamp.desc())
+        .limit(20)
+        .all()
+    )
+
+    activities = []
+    for r in rows:
+        entry: dict = {
+            "date": r.timestamp.date().isoformat(),
+        }
+        if r.notes:
+            try:
+                notes = json.loads(r.notes)
+                entry["name"]       = notes.get("name")
+                entry["sport_type"] = notes.get("type") or notes.get("sport_type")
+                entry["distance_km"] = notes.get("distance_km")
+                moving_s = notes.get("moving_time_s")
+                entry["duration_min"] = round(moving_s / 60, 1) if moving_s else None
+                entry["tss"]        = notes.get("tss")
+            except (ValueError, TypeError):
+                pass
+        activities.append(entry)
+
+    return {"activities": activities}
+
+
 @router.get("/v1/reflection")
 def get_reflection(db: Session = Depends(get_db)):
     def _entry(g):
