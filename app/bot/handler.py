@@ -152,8 +152,9 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     redis_client = get_redis()
     claude_client = get_client()
 
+    history = session_mgr.get_session(redis_client)
     intent, confidence = await asyncio.to_thread(
-        classify_intent_with_confidence, text, is_morning, claude_client
+        classify_intent_with_confidence, text, is_morning, claude_client, history
     )
     original_intent = intent
     if is_morning and intent != "free_response":

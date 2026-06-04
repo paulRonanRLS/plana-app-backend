@@ -40,28 +40,14 @@ def classify_intent(
     text: str,
     is_morning: bool,
     client: Optional[anthropic.Anthropic],
+    history: list[dict] | None = None,
 ) -> str:
     """Classify the intent of an incoming message.
 
     Returns one label from INTENTS. Falls back to the keyword stub on any error.
     """
-    if client is None:
-        return _stub_classify(text, is_morning)
-    try:
-        resp = client.messages.create(
-            model="claude-sonnet-4-6",
-            max_tokens=20,
-            messages=[{"role": "user", "content": _USER_TEMPLATE.format(text=text)}],
-            timeout=15.0,
-        )
-        label = resp.content[0].text.strip().lower()
-        if label in INTENTS:
-            return label
-        logger.warning(f"Unexpected intent label '{label}' from Claude — using stub")
-        return _stub_classify(text, is_morning)
-    except Exception as e:
-        logger.warning(f"Intent classification error: {e} — using stub")
-        return _stub_classify(text, is_morning)
+    label, _ = classify_intent_with_confidence(text, is_morning, client, history)
+    return label
 
 
 _USER_TEMPLATE_CONFIDENCE = """\
@@ -83,6 +69,40 @@ Message: {text}
 
 Reply with JSON only, no other text: {{"intent": "<label>", "confidence": <0.0-1.0>}}"""
 
+_USER_TEMPLATE_CONFIDENCE_WITH_CONTEXT = """\
+Classify the latest message into exactly one intent and rate your confidence.
+Use the conversation context to resolve ambiguous or short messages.
+
+  morning_checkin   — waking report: subjective feel, energy, sleep quality
+  progress_capture  — reporting an activity or work just done toward a goal
+  physical_state    — physical symptom: sore, fatigued, injured, niggles
+  illness_log       — illness start, progression, or recovery note
+  metric_log        — a specific measurable value (weight, alcohol units, etc.)
+  goal_query        — question about goal status, progress, or resources
+  activity_query    — question about past workouts, rides, runs, or training sessions
+  sacrifice_log     — reporting a skipped commitment or deprioritised goal
+  milestone_complete — reporting completion of a specific milestone
+  goal_state_change  — requesting a change to a goal's priority state
+  free_response     — continuation of conversation or anything else
+
+Recent conversation context (last {n} turns):
+{context}
+
+Latest message to classify: {text}
+
+Reply with JSON only, no other text: {{"intent": "<label>", "confidence": <0.0-1.0>}}"""
+
+
+def _format_history_context(history: list[dict], n: int = 3) -> str:
+    """Format last N messages from session history for inclusion in the prompt."""
+    recent = history[-n:] if len(history) > n else history
+    lines = []
+    for msg in recent:
+        role = msg.get("role", "user")
+        content = msg.get("content", "")
+        lines.append(f"  {role}: {content}")
+    return "\n".join(lines)
+
 # Default confidence values for the keyword stub — used when Claude is unavailable.
 _STUB_CONFIDENCE: dict[str, float] = {
     "morning_checkin": 1.0,
@@ -103,20 +123,32 @@ def classify_intent_with_confidence(
     text: str,
     is_morning: bool,
     client: Optional[anthropic.Anthropic],
+    history: list[dict] | None = None,
 ) -> tuple[str, float]:
     """Classify intent and return (label, confidence).
 
     Uses a single Claude call returning JSON when Claude is available.
+    When history is provided, includes the last 3 turns as context so
+    short or ambiguous messages ("2 before yesterday") classify correctly.
     Falls back to the keyword stub with fixed confidence values on any error.
     """
     if client is None:
         intent = _stub_classify(text, is_morning)
         return intent, _STUB_CONFIDENCE.get(intent, 0.7)
     try:
+        if history:
+            context = _format_history_context(history, n=3)
+            prompt = _USER_TEMPLATE_CONFIDENCE_WITH_CONTEXT.format(
+                n=min(len(history), 3),
+                context=context,
+                text=text,
+            )
+        else:
+            prompt = _USER_TEMPLATE_CONFIDENCE.format(text=text)
         resp = client.messages.create(
             model="claude-sonnet-4-6",
             max_tokens=40,
-            messages=[{"role": "user", "content": _USER_TEMPLATE_CONFIDENCE.format(text=text)}],
+            messages=[{"role": "user", "content": prompt}],
             timeout=15.0,
         )
         raw = resp.content[0].text.strip()
