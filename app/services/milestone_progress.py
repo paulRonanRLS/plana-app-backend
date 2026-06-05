@@ -65,6 +65,8 @@ def _extract_metric_value(activity: dict, metric: ProgressMetric) -> float | Non
     if metric == ProgressMetric.duration_min:
         moving_s = activity.get("moving_time_s")
         return round(moving_s / 60, 2) if moving_s is not None else None
+    if metric == ProgressMetric.pace_per_km:
+        return activity.get("pace_per_km")
     if metric == ProgressMetric.tss:
         return activity.get("tss")
     if metric == ProgressMetric.count:
@@ -149,10 +151,17 @@ def process_activity(db: Session, activity: dict) -> list[ProgressUpdate]:
             achieved = milestone.current_value >= milestone.target_value
 
         else:  # single_effort
-            # Track the best single-activity value seen
-            if metric_value > milestone.current_value:
-                milestone.current_value = round(metric_value, 3)
-            achieved = metric_value >= milestone.target_value
+            if milestone.metric == ProgressMetric.pace_per_km:
+                # Pace comparison is inverted — lower value means faster pace.
+                # current_value stores the best (lowest) pace seen; 0.0 means no data yet.
+                if milestone.current_value == 0.0 or metric_value < milestone.current_value:
+                    milestone.current_value = round(metric_value, 3)
+                achieved = metric_value <= milestone.target_value
+            else:
+                # Track the best single-activity value seen
+                if metric_value > milestone.current_value:
+                    milestone.current_value = round(metric_value, 3)
+                achieved = metric_value >= milestone.target_value
 
         if achieved and milestone.state != MilestoneState.achieved:
             milestone.state = MilestoneState.achieved
@@ -200,6 +209,7 @@ def activity_dict_from_row(row) -> dict:
         "activity_type": notes.get("type") or row.text_value or "",
         "distance_km": notes.get("distance_km") or row.value,
         "moving_time_s": notes.get("moving_time_s"),
+        "pace_per_km": notes.get("pace_per_km"),
         "tss": notes.get("tss"),
         "timestamp": row.timestamp,
     }

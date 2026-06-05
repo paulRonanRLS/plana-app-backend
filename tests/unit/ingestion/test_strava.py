@@ -8,6 +8,7 @@ import pytest
 from app.ingestion.strava import (
     _activity_already_stored,
     _activity_to_rows,
+    _calculate_pace,
     _calculate_tss,
     _stub_activity_dicts,
     sync_strava,
@@ -192,3 +193,63 @@ def test_sync_strava_activity_notes_valid_json(test_db, monkeypatch):
     notes = json.loads(activity_row.notes)
     assert "strava_id" in notes
     assert "type" in notes
+
+
+# ── pace_per_km ────────────────────────────────────────────────────────────────
+
+def test_calculate_pace_run():
+    activity = {"activity_type": "Run", "distance_km": 10.0, "moving_time_s": 3000}
+    pace = _calculate_pace(activity)
+    assert pace == 5.0  # 3000 / 10.0 / 60
+
+
+def test_calculate_pace_rounds_to_2dp():
+    activity = {"activity_type": "Run", "distance_km": 7.0, "moving_time_s": 2100}
+    pace = _calculate_pace(activity)
+    assert pace == round(2100 / 7.0 / 60, 2)
+
+
+def test_calculate_pace_non_run_returns_none():
+    activity = {"activity_type": "Ride", "distance_km": 40.0, "moving_time_s": 5400}
+    assert _calculate_pace(activity) is None
+
+
+def test_calculate_pace_zero_distance_returns_none():
+    activity = {"activity_type": "Run", "distance_km": 0.0, "moving_time_s": 1800}
+    assert _calculate_pace(activity) is None
+
+
+def test_calculate_pace_missing_distance_returns_none():
+    activity = {"activity_type": "Run", "moving_time_s": 1800}
+    assert _calculate_pace(activity) is None
+
+
+def test_activity_to_rows_run_includes_pace_per_km():
+    rows = _activity_to_rows(_make_activity(activity_type="Run", distance_km=10.0))
+    activity_row = next(r for r in rows if r["metric_type"] == MetricType.activity)
+    notes = json.loads(activity_row["notes"])
+    assert "pace_per_km" in notes
+    assert notes["pace_per_km"] > 0
+
+
+def test_activity_to_rows_ride_excludes_pace_per_km():
+    rows = _activity_to_rows(_make_activity(activity_type="Ride", distance_km=40.0))
+    activity_row = next(r for r in rows if r["metric_type"] == MetricType.activity)
+    notes = json.loads(activity_row["notes"])
+    assert "pace_per_km" not in notes
+
+
+def test_stub_activity_run_notes_contain_pace(test_db, monkeypatch):
+    monkeypatch.setenv("STRAVA_ENABLED", "false")
+    from app.config import get_settings
+    get_settings.cache_clear()
+
+    sync_strava(test_db)
+    row = test_db.query(MetricReading).filter(
+        MetricReading.metric_type == MetricType.activity,
+        MetricReading.text_value == "Run",
+    ).first()
+    assert row is not None
+    notes = json.loads(row.notes)
+    assert "pace_per_km" in notes
+    assert notes["pace_per_km"] > 0

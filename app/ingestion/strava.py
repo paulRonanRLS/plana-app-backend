@@ -78,13 +78,24 @@ def _stub_activity_dicts() -> list[dict]:
     ]
 
 
+def _calculate_pace(activity: dict) -> float | None:
+    """Return pace in min/km for running activities, or None."""
+    if activity.get("activity_type", "").lower() != "run":
+        return None
+    distance_km = activity.get("distance_km") or 0
+    moving_time_s = activity.get("moving_time_s") or 0
+    if distance_km <= 0 or moving_time_s <= 0:
+        return None
+    return round(moving_time_s / distance_km / 60, 2)
+
+
 def _activity_to_rows(activity: dict) -> list[dict]:
     """Convert a parsed activity dict to one or two MetricReading dicts.
 
     Always produces an 'activity' row.
     Also produces a 'tss' row if TSS was calculated (feeds resource service).
     """
-    notes = json.dumps({
+    notes_dict = {
         "strava_id": activity["strava_id"],
         "name": activity.get("name", ""),
         "type": activity["activity_type"],
@@ -95,7 +106,11 @@ def _activity_to_rows(activity: dict) -> list[dict]:
         "max_hr": activity.get("max_hr"),
         "normalized_power_w": activity.get("normalized_power_w"),
         "tss": activity.get("tss"),
-    })
+    }
+    pace = _calculate_pace(activity)
+    if pace is not None:
+        notes_dict["pace_per_km"] = pace
+    notes = json.dumps(notes_dict)
     rows = [
         {
             "timestamp": activity["timestamp"],

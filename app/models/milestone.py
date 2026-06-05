@@ -23,6 +23,7 @@ class ProgressType(str, enum.Enum):
 class ProgressMetric(str, enum.Enum):
     distance_km = "distance_km"
     duration_min = "duration_min"
+    pace_per_km = "pace_per_km"
     tss = "tss"
     count = "count"
 
