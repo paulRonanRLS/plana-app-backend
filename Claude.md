@@ -8,10 +8,6 @@ these tensions honestly without advising what to do.
 
 Full design spec is in docs/planA-spec-v0.1.docx — read it for complete product context.
 
-This repo was forked from recipe-app-backend. All recipe-specific code has been removed.
-The infrastructure layer (FastAPI, SQLAlchemy, Redis, Claude client, Docker Compose) is retained
-as the foundation.
-
 ## Architecture
 - **Pattern**: Thin routers → service layer → SQLAlchemy models
 - **Routers**: app/routers/ (all routers live here)
@@ -123,19 +119,26 @@ check-in flow. The bot does not push a morning notification — the user initiat
 After 10am, messages are treated as regular captures or interactions.
 
 **Intent classification:** Incoming messages are classified by Claude into one of:
-- morning_checkin (subjective feel, physical state)
-- progress_capture (goal activity, cooking, photography, etc.)
-- physical_state (sore legs, fatigue, niggles)
-- illness_log (illness start or recovery)
-- metric_log (alcohol units, weight, manual readings)
-- goal_query (asking about goal status)
-- free_response (reply within an active check-in conversation)
+- morning_checkin — waking report: subjective feel, energy, sleep quality
+- progress_capture — reporting an activity or work done toward a goal
+- physical_state — physical symptom: sore, fatigued, injured, niggles
+- illness_log — illness start, progression, or recovery note
+- metric_log — a specific measurable value (weight, alcohol units, etc.)
+- goal_query — question about goal status, progress, or resources
+- activity_query — question about past workouts, rides, runs, or training sessions
+- sacrifice_log — reporting a skipped or deprioritised commitment
+- milestone_complete — reporting completion of a specific milestone
+- goal_state_change — requesting a change to a goal's priority state
+- free_response — continuation of conversation or anything else
+
+Classification uses the last 3 session messages as context so short or ambiguous replies
+(e.g. "2 before yesterday" after a cooking discussion) resolve correctly.
 
 ## Ingestion Jobs
 Garmin and Strava data is pulled on a schedule via APScheduler:
-- Garmin: polls from 6am for overnight sleep data, runs every 15 minutes until fresh data found,
-  backstop at 10am if data has not appeared
-- Strava: webhook preferred for real-time activity capture; polling fallback every 30 minutes
+- Garmin: polls hourly from 06:00–09:00, backstop at 07:30 and 10:00 if data hasn't appeared
+- Strava: polls every 30 minutes
+- On startup: Garmin catch-up runs immediately if today's readings are absent
 - Ingestion jobs: app/ingestion/garmin.py, app/ingestion/strava.py
 - Scheduler setup: app/ingestion/scheduler.py
 
@@ -157,12 +160,15 @@ Goal state, milestones, sacrifices, and sessions are standard PostgreSQL tables.
 ## Intelligence Layer
 The intelligence layer (app/intelligence/) handles all LLM interactions:
 
-- **intent.py**: Classify incoming Telegram messages — goal, event type, confidence
+- **intent.py**: Classify incoming messages — label and confidence, with session context
+- **checkin.py**: Contextual morning check-in conversation
+- **goal_query.py**: Answer questions about goal status, progress, and resources
+- **activity_query.py**: Answer questions about past Strava activities
 - **milestones.py**: Generate milestone progression from goal, deadline, capability baseline
 - **memoir.py**: Draft goal reflection at completion or release from accumulated data
-- **checkin.py**: Contextual morning check-in conversation
 - **tension.py**: Plain language description of detected resource conflicts
 - **patterns.py**: Periodic synthesis of commitment profile from sacrifice attribution history
+- **week_context.py**: Date, week boundaries, and habit progress for system prompts
 
 All LLM calls go through app/core/claude_client.py. The intelligence layer never calls
 the Anthropic API directly.
@@ -206,10 +212,9 @@ Sources: HRV, subjective feel, resting HR, sleep, training load, physical state 
 
 ## Web Frontend
 Simple HTML/JS frontend served by FastAPI static files at app/web/.
-Four views: Now, Goals, Tension Map, Reflection.
+Five views: Now, Goals, Tension Map (greyed out), Reflection, Connectors.
 No JavaScript framework — plain HTML, CSS, JS is sufficient.
 No authentication — single user local app.
-The tension map is rendered as an interactive SVG.
 
 A natural language input bar is present on all views — same intent classification
 pipeline as Telegram. Sends to POST /v1/capture.
@@ -223,35 +228,6 @@ Three levels:
 
 All non-live tests must pass before any session ends.
 Never change test files to make tests pass — fix the implementation.
-
-## Current State
-Forked from recipe-app-backend. Recipe-specific code removed. Infrastructure foundation clean.
-
-**Completed:**
-- FastAPI app structure (app/main.py) — planA branding, no recipe or auth references
-- SQLAlchemy + Alembic setup (app/database.py, alembic/)
-- Claude client (app/core/claude_client.py)
-- Redis client (app/core/redis_client.py)
-- Docker Compose — TimescaleDB (timescale/timescaledb-ha:pg16) + Redis
-- Health endpoints (/health, /health/ready)
-- Config (app/config.py) — all planA env vars, no Firebase/GCS
-- Empty module stubs: app/bot/, app/ingestion/, app/intelligence/, app/web/
-- pyproject.toml updated — recipe deps removed, planA deps added
-  (python-telegram-bot, garminconnect, apscheduler, pytz, python-jose)
-- Clean test fixtures (tests/conftest.py) — no recipe models
-
-**To build (in order):**
-1. Core data models — Goal, MetricReading, Milestone, Sacrifice, ResourceProfile
-2. Alembic migrations including TimescaleDB hypertables
-3. Goal service — CRUD, lifecycle state management
-4. Resource service — envelope calculation, tension scoring
-5. Telegram bot — handler, session memory, intent routing
-6. Intelligence layer — intent classification, check-in conversation
-7. Garmin ingestion — sleep, HRV, resting HR, body battery
-8. Strava ingestion — activities, TSS, zone data
-9. Drift and fade detection
-10. Milestone generation and agreement flow
-11. Web frontend — Now view, Goals view, Tension Map, Reflection view
 
 ## Do Not
 - Add authentication — this is a single user local app, no auth needed
