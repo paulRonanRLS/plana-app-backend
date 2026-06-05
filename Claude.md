@@ -11,13 +11,15 @@ Full design spec is in docs/planA-spec-v0.1.docx — read it for complete produc
 ## Architecture
 - **Pattern**: Thin routers → service layer → SQLAlchemy models
 - **Routers**: app/routers/ (all routers live here)
-- **Services**: app/services/ (all business logic lives here)
+- **Services**: app/services/ (goal, resource, capture, milestone, milestone_progress, capability, template, activity, drift, fade)
 - **Models**: app/models/ (SQLAlchemy ORM — TimescaleDB hypertables for time series data)
 - **Schemas**: app/schemas/ (Pydantic request/response)
 - **Core**: app/core/ (database, Redis, Claude client)
 - **Bot**: app/bot/ (Telegram handler, intent router, session manager)
+- **Bot handlers**: app/bot/handlers/ (handler registry — one file per intent)
 - **Ingestion**: app/ingestion/ (Garmin and Strava sync jobs)
 - **Intelligence**: app/intelligence/ (intent classification, milestone generation, memoir drafting)
+- **Config**: config/goal_templates.json (26 goal templates)
 
 ## Tech Stack
 - Python 3.11, FastAPI, SQLAlchemy, Alembic, Pydantic v2
@@ -118,18 +120,13 @@ expire after 30 minutes of inactivity. Goal state context is pulled fresh on eve
 check-in flow. The bot does not push a morning notification — the user initiates by messaging.
 After 10am, messages are treated as regular captures or interactions.
 
-**Intent classification:** Incoming messages are classified by Claude into one of:
-- morning_checkin — waking report: subjective feel, energy, sleep quality
-- progress_capture — reporting an activity or work done toward a goal
-- physical_state — physical symptom: sore, fatigued, injured, niggles
-- illness_log — illness start, progression, or recovery note
-- metric_log — a specific measurable value (weight, alcohol units, etc.)
-- goal_query — question about goal status, progress, or resources
-- activity_query — question about past workouts, rides, runs, or training sessions
-- sacrifice_log — reporting a skipped or deprioritised commitment
-- milestone_complete — reporting completion of a specific milestone
-- goal_state_change — requesting a change to a goal's priority state
-- free_response — continuation of conversation or anything else
+**Intent routing** uses a handler registry pattern. Each intent has a dedicated handler class
+in app/bot/handlers/ extending IntentHandler. app/bot/handler.py is a thin dispatcher only.
+HandlerContext is passed to every handler containing: text, intent, original_intent,
+is_morning, goals, db, claude_client, redis_client, pending_capture, pending_alert.
+
+Intents: morning_checkin, progress_capture, physical_state, illness_log, metric_log,
+goal_query, activity_query, sacrifice_log, milestone_complete, goal_state_change, free_response.
 
 Classification uses the last 3 session messages as context so short or ambiguous replies
 (e.g. "2 before yesterday" after a cooking discussion) resolve correctly.
@@ -240,3 +237,32 @@ Never change test files to make tests pass — fix the implementation.
 - Hardcode any credentials or API keys
 - Call external services directly from routers — always go through the service layer
 - Skip tests — run the full non-live suite after every significant change
+- Add inline onclick handlers to HTML — use addEventListener in DOMContentLoaded instead
+- Add duplicate script tags — each HTML file should have exactly one app.js reference
+- Use claude-sonnet-4-20250514 or any model other than claude-sonnet-4-6
+
+## Current State
+
+**Completed:**
+- Full goal lifecycle — perpetual, achievement, habit types with template library
+- TimescaleDB schema with hypertables
+- Goal, resource, capture, milestone progress, capability, template services
+- 26 goal templates in config/goal_templates.json
+- Telegram bot with handler registry (11 intents)
+- Intelligence layer — check-in, goal query, activity query, milestone generation, memoir,
+  week context, patterns
+- Garmin ingestion — sleep, HRV, resting HR, body battery, stress with Redis session caching
+- Strava ingestion — activities, TSS, pace calculation, milestone progress tracking
+- Drift and fade detection with Telegram outreach
+- Web frontend — Now, Goals, Reflection, Connectors views
+- Context-aware intent classification (last 3 session turns)
+- Data provenance labelling across all system prompts
+- Async Claude calls with 15s/30s timeouts and stub fallback
+
+**Known gaps — next to build:**
+- Tension map (greyed out in nav)
+- Pending state queue — last-write-wins on alerts (design weakness 5.2)
+- Silent capture drop notification (5.7)
+- Fade detection per-goal not global (5.8)
+- Morning override intent transparency (5.5)
+- Capture bar response panel on web UI
