@@ -5,7 +5,7 @@ from typing import Optional
 
 from pydantic import BaseModel, ConfigDict
 
-from app.models.milestone import MilestoneState
+from app.models.milestone import MilestoneState, ProgressMetric, ProgressPeriod, ProgressType
 
 
 class MilestoneSuggestRequest(BaseModel):
@@ -58,6 +58,12 @@ class MilestoneResponse(BaseModel):
     created_at: datetime
     updated_at: datetime
     achieved_at: Optional[datetime] = None
+    activity_type: Optional[str] = None
+    progress_type: Optional[ProgressType] = None
+    metric: Optional[ProgressMetric] = None
+    target_value: Optional[float] = None
+    period: Optional[ProgressPeriod] = None
+    current_value: Optional[float] = None
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -72,3 +78,8 @@ class MilestonePatch(BaseModel):
     description: Optional[str] = None
     target_date: Optional[date] = None
     state: Optional[MilestoneState] = None
+    activity_type: Optional[str] = None
+    progress_type: Optional[ProgressType] = None
+    metric: Optional[ProgressMetric] = None
+    target_value: Optional[float] = None
+    period: Optional[ProgressPeriod] = None

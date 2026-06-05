@@ -197,6 +197,64 @@ def test_patch_404_for_unknown_milestone(test_app, test_db):
     assert resp.status_code == 404
 
 
+def test_patch_saves_tracking_fields(test_app, test_db):
+    goal = _make_active_goal(test_db)
+    mid = _agree_one(test_app, test_db, goal.id, title="Get zone 2 training to 5min kms")
+    resp = test_app.patch(
+        f"/v1/goals/{goal.id}/milestones/{mid}",
+        json={
+            "activity_type": "run",
+            "progress_type": "single_effort",
+            "metric": "pace_per_km",
+            "target_value": 5.0,
+            "period": "lifetime",
+        },
+    )
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["activity_type"] == "run"
+    assert data["progress_type"] == "single_effort"
+    assert data["metric"] == "pace_per_km"
+    assert data["target_value"] == 5.0
+    assert data["period"] == "lifetime"
+
+
+def test_patch_tracking_fields_persisted_in_db(test_app, test_db):
+    from app.models.milestone import Milestone
+    goal = _make_active_goal(test_db)
+    mid = _agree_one(test_app, test_db, goal.id)
+    test_app.patch(
+        f"/v1/goals/{goal.id}/milestones/{mid}",
+        json={"activity_type": "run", "progress_type": "single_effort",
+              "metric": "pace_per_km", "target_value": 5.0, "period": "lifetime"},
+    )
+    test_db.expire_all()
+    m = test_db.query(Milestone).filter(Milestone.id == mid).first()
+    assert m.activity_type == "run"
+    assert m.progress_type.value == "single_effort"
+    assert m.metric.value == "pace_per_km"
+    assert m.target_value == 5.0
+    assert m.period.value == "lifetime"
+
+
+def test_patch_tracking_fields_can_be_cleared(test_app, test_db):
+    goal = _make_active_goal(test_db)
+    mid = _agree_one(test_app, test_db, goal.id)
+    test_app.patch(
+        f"/v1/goals/{goal.id}/milestones/{mid}",
+        json={"activity_type": "run", "metric": "distance_km", "target_value": 10.0},
+    )
+    resp = test_app.patch(
+        f"/v1/goals/{goal.id}/milestones/{mid}",
+        json={"activity_type": None, "metric": None, "target_value": None},
+    )
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["activity_type"] is None
+    assert data["metric"] is None
+    assert data["target_value"] is None
+
+
 # ── DELETE /v1/goals/{id}/milestones/{milestone_id} ───────────────────────────
 
 def test_delete_milestone_returns_204(test_app, test_db):
